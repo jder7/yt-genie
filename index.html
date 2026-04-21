@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Genie — Bulk Video Manager</title>
+  <meta name="description" content="Manage YouTube video titles and descriptions in bulk. Export, edit, and batch-update your playlists with ease." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧞</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Geometric Background Decorations -->
+  <div class="geo-bg" aria-hidden="true">
+    <div class="geo-shape geo-shape--1"></div>
+    <div class="geo-shape geo-shape--2"></div>
+    <div class="geo-shape geo-shape--3"></div>
+    <div class="geo-shape geo-shape--4"></div>
+    <div class="geo-shape geo-shape--5"></div>
+    <div class="geo-triangle geo-triangle--1"></div>
+    <div class="geo-triangle geo-triangle--2"></div>
+    <div class="geo-diamond geo-diamond--1"></div>
+    <div class="geo-diamond geo-diamond--2"></div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="spinner spinner--large"></div>
+    <div id="loading-text" class="loading-overlay__text">Loading…</div>
+  </div>
+
+  <!-- Config Modal -->
+  <div id="config-modal" class="modal-overlay">
+    <div class="modal">
+      <h2 class="modal__title">⚙️ Configuration</h2>
+      <div class="modal__field">
+        <label for="config-client-id">Google OAuth 2.0 Client ID</label>
+        <input type="text" id="config-client-id" placeholder="xxxx.apps.googleusercontent.com" />
+      </div>
+      <div class="modal__field">
+        <label for="config-quota-limit">Daily Quota Limit (default: 10,000)</label>
+        <input type="number" id="config-quota-limit" value="10000" min="1" />
+      </div>
+      <p style="font-size:0.8rem; color:var(--text-muted); margin-top:var(--space-sm);">
+        Create a Google Cloud project, enable the YouTube Data API v3, and generate an OAuth 2.0 Client ID.
+        Set the consent screen to "Testing" and add your Google account as an authorized tester.
+      </p>
+      <div class="modal__actions">
+        <button id="btn-config-cancel" class="btn btn--secondary btn--small">Cancel</button>
+        <button id="btn-config-save" class="btn btn--primary btn--small">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App Container -->
+  <div class="app-container">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="app-logo">
+        <div class="app-logo__icon">🧞</div>
+        <span class="app-logo__text">YouTube Genie</span>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:var(--space-md);">
+        <div class="user-info">
+          <img id="user-avatar" class="user-info__avatar hidden" src="" alt="Avatar" />
+          <span id="user-name" class="user-info__name"></span>
+        </div>
+        <button id="btn-config" class="btn btn--secondary btn--small btn--icon" title="Settings">⚙️</button>
+        <button id="btn-login" class="btn btn--primary btn--small">Sign in with Google</button>
+        <button id="btn-logout" class="btn btn--danger btn--small hidden">Sign Out</button>
+      </div>
+    </header>
+
+    <!-- Hero Section (pre-login) -->
+    <section id="hero-section" class="hero">
+      <h1 class="hero__title">
+        Manage Your Videos<br />
+        <span class="hero__title-gradient">Like Magic</span>
+      </h1>
+      <p class="hero__subtitle">
+        Bulk edit YouTube video titles and descriptions across entire playlists.
+        Export, review, and batch-update — all from your browser.
+      </p>
+      <button id="btn-hero-login" class="btn btn--primary">
+        🧞 Get Started — Connect YouTube
+      </button>
+    </section>
+
+    <!-- Dashboard (post-login) -->
+    <main id="dashboard" class="dashboard">
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div id="stat-playlists" class="stat-card__value">0</div>
+          <div class="stat-card__label">Playlists</div>
+        </div>
+        <div class="stat-card">
+          <div id="stat-videos" class="stat-card__value">0</div>
+          <div class="stat-card__label">Videos</div>
+        </div>
+        <div class="stat-card">
+          <div id="stat-modified" class="stat-card__value">0</div>
+          <div class="stat-card__label">Modified</div>
+        </div>
+        <div class="stat-card">
+          <div id="stat-synced" class="stat-card__value">0</div>
+          <div class="stat-card__label">Synced</div>
+        </div>
+      </div>
+
+      <!-- Quota -->
+      <div class="quota-bar">
+        <span class="quota-bar__label">API Quota</span>
+        <div class="quota-bar__track">
+          <div id="quota-fill" class="quota-bar__fill" style="width:0%"></div>
+        </div>
+        <span id="quota-value" class="quota-bar__value">0 / 10000 units</span>
+      </div>
+
+      <!-- Playlist Selector -->
+      <section class="section">
+        <h2 class="section__title">Select Playlist</h2>
+        <div class="playlist-selector">
+          <div class="select-wrap">
+            <select id="playlist-select">
+              <option value="">— Select a playlist —</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Bar -->
+      <div class="action-bar">
+        <div class="action-bar__group">
+          <button id="btn-export" class="btn btn--secondary btn--small" disabled>
+            📥 Export JSON
+          </button>
+          <button id="btn-import" class="btn btn--secondary btn--small">
+            📤 Import JSON
+          </button>
+          <input type="file" id="import-file" accept=".json" class="hidden" />
+        </div>
+        <div class="action-bar__spacer"></div>
+        <div class="action-bar__group">
+          <button id="btn-batch-update" class="btn btn--success btn--small" disabled>
+            🚀 Batch Update
+          </button>
+          <button id="btn-cancel-batch" class="btn btn--danger btn--small hidden">
+            ✋ Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- Batch Progress -->
+      <div id="batch-progress" class="batch-progress">
+        <div class="batch-progress__header">
+          <span class="batch-progress__label">Updating videos…</span>
+          <span id="batch-count" class="batch-progress__count">0 / 0</span>
+        </div>
+        <div class="batch-progress__track">
+          <div id="batch-fill" class="batch-progress__fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Drop Zone (shown when no videos loaded) -->
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone__icon">📂</div>
+        <div class="drop-zone__text">Drop a JSON file here to import</div>
+        <div class="drop-zone__hint">or click to browse</div>
+      </div>
+
+      <!-- Video List -->
+      <div id="video-list" class="video-list"></div>
+
+      <!-- Empty State -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-state__icon">🎬</div>
+        <p class="empty-state__text">Select a playlist above to view and edit videos</p>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
