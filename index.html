@@ -37,7 +37,23 @@
     <div class="modal">
       <h2 class="modal__title">⚙️ Configuration</h2>
       <div class="modal__field">
-        <label for="config-client-id">Google OAuth 2.0 Client ID</label>
+        <div class="modal__label-row">
+          <label for="config-client-id">Google OAuth 2.0 Client ID</label>
+          <span class="field-info">
+            <a
+              class="field-info__icon"
+              href="https://github.com/jder7/yt-genie#how-to-get-a-google-oauth-client-id"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open documentation for Google OAuth Client ID"
+            >
+              i
+            </a>
+            <span class="field-info__tooltip">
+              Required for Google OAuth login. Click to open setup docs.
+            </span>
+          </span>
+        </div>
         <input type="text" id="config-client-id" placeholder="xxxx.apps.googleusercontent.com" />
       </div>
       <div class="modal__field">

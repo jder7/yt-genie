@@ -8,11 +8,28 @@
 const Auth = (() => {
   const SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
   const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest';
+  const SESSION_STORAGE_KEY = 'yt_genie_auth_session';
+  const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
 
   let tokenClient = null;
   let accessToken = null;
   let userProfile = null;
+  let tokenExpiresAt = 0;
   let onAuthChange = null; // callback(isLoggedIn, profile)
+
+  function saveSession() {
+    if (!accessToken || !tokenExpiresAt) return;
+    const payload = {
+      accessToken,
+      tokenExpiresAt,
+      userProfile,
+    };
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+  }
+
+  function clearSavedSession() {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  }
 
   /**
    * Load the GIS client script dynamically and return a promise.
@@ -85,6 +102,8 @@ const Auth = (() => {
     }
 
     accessToken = response.access_token;
+    const expiresInMs = (Number(response.expires_in) || 3600) * 1000;
+    tokenExpiresAt = Date.now() + expiresInMs - TOKEN_EXPIRY_BUFFER_MS;
     gapi.client.setToken({ access_token: accessToken });
 
     // Fetch user profile info
@@ -97,6 +116,7 @@ const Auth = (() => {
       userProfile = { name: 'YouTube User' };
     }
 
+    saveSession();
     onAuthChange?.(true, userProfile);
   }
 
@@ -110,6 +130,35 @@ const Auth = (() => {
     tokenClient.requestAccessToken({ prompt: 'consent' });
   }
 
+  async function restoreSessionFromStorage() {
+    if (!window.gapi?.client) return false;
+
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return false;
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      clearSavedSession();
+      return false;
+    }
+
+    const restoredToken = parsed?.accessToken;
+    const restoredExpiresAt = Number(parsed?.tokenExpiresAt);
+    if (!restoredToken || !restoredExpiresAt || Date.now() >= restoredExpiresAt) {
+      clearSavedSession();
+      return false;
+    }
+
+    accessToken = restoredToken;
+    tokenExpiresAt = restoredExpiresAt;
+    userProfile = parsed?.userProfile || { name: 'YouTube User' };
+    gapi.client.setToken({ access_token: accessToken });
+    onAuthChange?.(true, userProfile);
+    return true;
+  }
+
   /**
    * Revoke token and log out.
    */
@@ -118,9 +167,14 @@ const Auth = (() => {
       google.accounts.oauth2.revoke(accessToken);
       accessToken = null;
       userProfile = null;
+      tokenExpiresAt = 0;
+      clearSavedSession();
       gapi.client.setToken(null);
       onAuthChange?.(false, null);
+      return;
     }
+    clearSavedSession();
+    onAuthChange?.(false, null);
   }
 
   /**
@@ -138,5 +192,5 @@ const Auth = (() => {
     return !!accessToken;
   }
 
-  return { init, login, logout, getToken, getProfile, isLoggedIn };
+  return { init, login, restoreSessionFromStorage, clearSavedSession, logout, getToken, getProfile, isLoggedIn };
 })();

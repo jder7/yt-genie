@@ -33,6 +33,12 @@ const API = (() => {
     onQuotaChange?.(quotaUsed, quotaLimit);
   }
 
+  function setQuotaUsed(used) {
+    const parsed = Number(used);
+    quotaUsed = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    onQuotaChange?.(quotaUsed, quotaLimit);
+  }
+
   /**
    * Fetch all playlists for the authenticated user.
    * Cost: ~1 unit per request.
@@ -171,6 +177,7 @@ const API = (() => {
     delay,
     getQuota,
     resetQuota,
+    setQuotaUsed,
     setQuotaLimit,
     setQuotaCallback,
   };

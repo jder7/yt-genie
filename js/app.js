@@ -12,6 +12,10 @@ const App = (() => {
   let videos = []; // fetched from API
   let editedVideos = []; // working copy for review/edit
   let batchRunning = false;
+  let authInitialized = false;
+  let authClientId = null;
+
+  const QUOTA_USED_STORAGE_KEY = 'yt_genie_quota_used';
 
   // --- DOM refs (cached on init) ---
   const $ = (sel) => document.querySelector(sel);
@@ -32,11 +36,35 @@ const App = (() => {
       $('#config-quota-limit').value = savedQuota;
     }
 
+    // Restore saved quota usage
+    const savedQuotaUsed = localStorage.getItem(QUOTA_USED_STORAGE_KEY);
+
     // Wire up UI events
     bindEvents();
 
     // Quota callback
-    API.setQuotaCallback(updateQuotaUI);
+    API.setQuotaCallback((used, limit) => {
+      updateQuotaUI(used, limit);
+      localStorage.setItem(QUOTA_USED_STORAGE_KEY, String(used));
+    });
+
+    if (savedQuotaUsed) {
+      API.setQuotaUsed(parseInt(savedQuotaUsed, 10));
+    } else {
+      updateQuotaUI(API.getQuota().used, API.getQuota().limit);
+    }
+
+    // Attempt local session restore on page load (no popup auth flow)
+    if (savedClientId) {
+      try {
+        showLoading('Restoring session…');
+        await ensureAuthInitialized(savedClientId);
+        const restored = await Auth.restoreSessionFromStorage();
+        if (!restored) hideLoading();
+      } catch (e) {
+        hideLoading();
+      }
+    }
   }
 
   function bindEvents() {
@@ -91,12 +119,19 @@ const App = (() => {
 
     showLoading('Connecting to YouTube…');
     try {
-      await Auth.init(clientId, onAuthChange);
+      await ensureAuthInitialized(clientId);
       Auth.login();
     } catch (e) {
       hideLoading();
       toast('Failed to initialize auth: ' + e.message, 'error');
     }
+  }
+
+  async function ensureAuthInitialized(clientId) {
+    if (authInitialized && authClientId === clientId) return;
+    await Auth.init(clientId, onAuthChange);
+    authInitialized = true;
+    authClientId = clientId;
   }
 
   function handleLogout() {
@@ -148,6 +183,7 @@ const App = (() => {
   }
 
   function saveConfig() {
+    const previousClientId = localStorage.getItem('yt_genie_client_id');
     const clientId = $('#config-client-id').value.trim();
     const quotaLimit = parseInt($('#config-quota-limit').value, 10);
 
@@ -157,6 +193,11 @@ const App = (() => {
     }
 
     localStorage.setItem('yt_genie_client_id', clientId);
+    if (previousClientId && previousClientId !== clientId) {
+      Auth.clearSavedSession();
+      authInitialized = false;
+      authClientId = null;
+    }
     if (quotaLimit > 0) {
       API.setQuotaLimit(quotaLimit);
       localStorage.setItem('yt_genie_quota_limit', quotaLimit);
