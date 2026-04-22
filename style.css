@@ -386,6 +386,11 @@ body {
   transform: none !important;
 }
 
+.btn--active {
+  border-color: var(--iris-cyan) !important;
+  box-shadow: 0 0 0 2px rgba(24,255,255,0.12);
+}
+
 /* --- Cards / Panels --- */
 .card {
   background: var(--grad-card);
@@ -428,6 +433,47 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: var(--space-md);
+}
+
+.playlist-editor {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+}
+
+.playlist-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.playlist-editor__header-left {
+  display: flex;
+  align-items: center;
+}
+
+.playlist-editor__header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.playlist-editor__thumb {
+  width: 160px;
+  max-width: 32vw;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.playlist-editor__fields {
+  display: grid;
+  gap: var(--space-md);
 }
 
 /* --- Dashboard Grid --- */
@@ -510,8 +556,16 @@ body {
   align-items: center;
 }
 
-.action-bar__spacer {
-  flex: 1;
+.action-bar__group--sort {
+  flex-wrap: wrap;
+}
+
+.action-bar__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* --- Video List / Grid --- */
@@ -555,17 +609,107 @@ body {
   margin-bottom: var(--space-md);
 }
 
-.video-item__index {
+.video-item__header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.video-item__header-right {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.video-item__order {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.video-item__order-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.video-item__order-input {
+  width: 56px;
+  height: 28px;
+  text-align: center;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--text-muted);
-  min-width: 28px;
-  height: 28px;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255,255,255,0.05);
+  border-radius: var(--radius-sm);
+  font-family: 'Inter', sans-serif;
+}
+
+.video-item__order-input:focus {
+  outline: none;
+  border-color: var(--iris-purple);
+  box-shadow: 0 0 0 3px rgba(124,77,255,0.15);
+}
+
+.video-item__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.video-item__thumb--placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.05);
+  min-height: 120px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.video-item__meta {
+  min-width: 0;
+}
+
+.video-item__upload-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.video-item__drag {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1;
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.04);
+  border: 1px dashed var(--border-subtle);
+}
+
+.video-item__drag--left {
+  margin-right: 2px;
+}
+
+.video-item__drag--right {
+  margin-top: 1px;
+}
+
+.video-item--draggable {
+  cursor: grab;
+}
+
+.video-item--dragging {
+  opacity: 0.55;
+}
+
+.video-item--drop-target {
+  border-color: var(--iris-cyan) !important;
 }
 
 .video-item__status {
@@ -591,9 +735,44 @@ body {
   color: var(--iris-pink);
 }
 
+.video-item__reset-chip {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.video-item__reset-chip:hover:not(:disabled) {
+  border-color: var(--iris-cyan);
+  color: var(--text-primary);
+  background: rgba(24,255,255,0.08);
+}
+
+.video-item__reset-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.video-item__content {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 240px);
+  gap: var(--space-md);
+  align-items: start;
+}
+
 .video-item__fields {
   display: grid;
   gap: var(--space-md);
+}
+
+.video-item__media {
+  display: flex;
+  align-items: flex-start;
 }
 
 .video-item__field label {
@@ -642,6 +821,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  flex-wrap: wrap;
   padding: var(--space-md) var(--space-lg);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -675,6 +855,34 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
+}
+
+.quota-chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--iris-cyan);
+  border: 1px solid rgba(24,255,255,0.25);
+  background: rgba(24,255,255,0.08);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.quota-chip--warn {
+  color: var(--iris-pink);
+  border-color: rgba(255,45,123,0.35);
+  background: rgba(255,45,123,0.12);
+}
+
+.quota-bar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-sm);
+}
+
+body.dragging-reorder {
+  cursor: grabbing;
 }
 
 /* --- Toast / Notifications --- */
@@ -1140,6 +1348,34 @@ body {
 
   .action-bar__group {
     justify-content: center;
+  }
+
+  .quota-bar__actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .video-item__header {
+    flex-direction: column;
+  }
+
+  .video-item__content {
+    grid-template-columns: 1fr;
+  }
+
+  .playlist-editor__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .playlist-editor__thumb {
+    width: min(220px, 100%);
+    max-width: 100%;
+  }
+
+  .video-item__upload-date {
+    white-space: normal;
   }
 
   .stats-row {

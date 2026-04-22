@@ -137,33 +137,8 @@
           <div id="quota-fill" class="quota-bar__fill" style="width:0%"></div>
         </div>
         <span id="quota-value" class="quota-bar__value">0 / 10000 units</span>
-      </div>
-
-      <!-- Playlist Selector -->
-      <section class="section">
-        <h2 class="section__title">Select Playlist</h2>
-        <div class="playlist-selector">
-          <div class="select-wrap">
-            <select id="playlist-select">
-              <option value="">— Select a playlist —</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      <!-- Action Bar -->
-      <div class="action-bar">
-        <div class="action-bar__group">
-          <button id="btn-export" class="btn btn--secondary btn--small" disabled>
-            📥 Export JSON
-          </button>
-          <button id="btn-import" class="btn btn--secondary btn--small">
-            📤 Import JSON
-          </button>
-          <input type="file" id="import-file" accept=".json" class="hidden" />
-        </div>
-        <div class="action-bar__spacer"></div>
-        <div class="action-bar__group">
+        <span id="batch-estimate-chip" class="quota-chip">Next sync: 0 units</span>
+        <div class="quota-bar__actions">
           <button id="btn-batch-update" class="btn btn--success btn--small" disabled>
             🚀 Batch Update
           </button>
@@ -181,6 +156,71 @@
         </div>
         <div class="batch-progress__track">
           <div id="batch-fill" class="batch-progress__fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Playlist Selector -->
+      <section class="section">
+        <h2 class="section__title">Select Playlist</h2>
+        <div class="playlist-selector">
+          <div class="select-wrap">
+            <select id="playlist-select">
+              <option value="">— Select a playlist —</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section id="playlist-editor" class="section playlist-editor hidden">
+        <h2 class="section__title">Playlist Details</h2>
+        <div class="playlist-editor__header">
+          <div class="playlist-editor__header-left">
+            <img id="playlist-thumb" class="playlist-editor__thumb hidden" src="" alt="Playlist thumbnail" />
+          </div>
+          <div class="playlist-editor__header-right">
+            <span id="playlist-edit-status" class="video-item__status hidden">Modified</span>
+            <button id="btn-reset-all" class="btn btn--danger btn--small" disabled>
+              ⟲ Reset All
+            </button>
+          </div>
+        </div>
+        <div class="playlist-editor__fields">
+          <div class="video-item__field">
+            <label for="playlist-title-input">Playlist Title</label>
+            <input type="text" id="playlist-title-input" />
+          </div>
+          <div class="video-item__field">
+            <label for="playlist-desc-input">Playlist Description</label>
+            <textarea id="playlist-desc-input" rows="3"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Bar -->
+      <div class="action-bar">
+        <div class="action-bar__group">
+          <button id="btn-export" class="btn btn--secondary btn--small" disabled>
+            📥 Export JSON
+          </button>
+          <button id="btn-import" class="btn btn--secondary btn--small">
+            📤 Import JSON
+          </button>
+          <input type="file" id="import-file" accept=".json" class="hidden" />
+        </div>
+        <div class="action-bar__group action-bar__group--sort">
+          <span class="action-bar__label">Sort</span>
+          <button id="btn-sort-title-asc" class="btn btn--secondary btn--small" disabled>
+            Title A→Z
+          </button>
+          <button id="btn-sort-title-desc" class="btn btn--secondary btn--small" disabled>
+            Title Z→A
+          </button>
+          <button id="btn-sort-date-asc" class="btn btn--secondary btn--small" disabled>
+            Date Old→New
+          </button>
+          <button id="btn-sort-date-desc" class="btn btn--secondary btn--small" disabled>
+            Date New→Old
+          </button>
         </div>
       </div>
 
@@ -206,6 +246,7 @@
   <!-- Scripts -->
   <script src="js/auth.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/persistence.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
