@@ -443,7 +443,7 @@ const App = (() => {
       keywordsInput.value = '';
       keywordsInput.removeAttribute('title');
       keywordsInput.closest('.tag-editor')?.classList.remove('tag-editor--modified');
-      keywordsPreview.textContent = 'No hashtags appended';
+      keywordsPreview.textContent = 'No tags added';
       keywordsPreview.classList.remove('keywords-preview--active');
       thumbnailEl.src = '';
       thumbnailEl.classList.add('hidden');
@@ -465,7 +465,7 @@ const App = (() => {
     keywordsInput.value = '';
     keywordsInput.closest('.tag-editor')?.classList.toggle('tag-editor--modified', keywordsChanged);
     keywordsInput.title = keywordsChanged
-      ? getModifiedTooltip(formatHashtagSuffix(currentPlaylistEdit.originalKeywords))
+      ? getModifiedTooltip(formatTagList(currentPlaylistEdit.originalKeywords))
       : '';
     updatePlaylistKeywordsPreview();
     if (currentPlaylistEdit.thumbnail) {
@@ -484,16 +484,16 @@ const App = (() => {
   function updatePlaylistKeywordsPreview() {
     const preview = $('#playlist-keywords-preview');
     if (!preview || !currentPlaylistEdit) return;
-    const hashtags = formatHashtagSuffix(currentPlaylistEdit.keywords);
+    const tagsText = formatTagList(currentPlaylistEdit.keywords);
     const chips = $('#playlist-keywords-chips');
     if (chips) {
       chips.innerHTML = renderTagChips(currentPlaylistEdit.keywords, { scope: 'playlist' });
     }
-    if (hashtags) {
-      preview.textContent = `Appended hashtags: ${hashtags}`;
+    if (tagsText) {
+      preview.textContent = `Tags: ${tagsText}`;
       preview.classList.add('keywords-preview--active');
     } else {
-      preview.textContent = 'No hashtags appended';
+      preview.textContent = 'No tags added';
       preview.classList.remove('keywords-preview--active');
     }
   }
@@ -528,6 +528,17 @@ const App = (() => {
 
   function hasPendingChanges(video) {
     return hasSnippetChanges(video) || !!video.orderModified;
+  }
+
+  function hasPlaylistSnippetChanges() {
+    return !!(
+      currentPlaylistEdit
+      && currentPlaylistEdit.playlistId
+      && (
+        currentPlaylistEdit.newTitle !== currentPlaylistEdit.title
+        || currentPlaylistEdit.newDescription !== currentPlaylistEdit.description
+      )
+    );
   }
 
   function syncOrderFlags() {
@@ -675,7 +686,7 @@ const App = (() => {
     const reorderSkipped = reorderPlan.skipped;
     const reorderedChangedCount = reorderPlan.changedPersistable;
     const reorderedOnlyCount = editedVideos.filter((video) => video.orderModified && !hasSnippetChanges(video)).length;
-    const playlistNeedsUpdate = !!(currentPlaylistEdit && currentPlaylistEdit.status === 'modified' && currentPlaylistEdit.playlistId);
+    const playlistNeedsUpdate = hasPlaylistSnippetChanges();
     const videoQuota = videosToUpdate.length * 51; // fetch + update
     const playlistQuota = playlistNeedsUpdate ? 51 : 0; // fetch + update
     const reorderQuota = reorderOperations.length * 50; // playlistItems.update only
@@ -781,14 +792,14 @@ const App = (() => {
       const titleTooltip = titleChanged ? ` title="${escapeAttr(getModifiedTooltip(video.title))}"` : '';
       const descTooltip = descChanged ? ` title="${escapeAttr(getModifiedTooltip(video.description))}"` : '';
       const keywordsTooltip = keywordsChanged
-        ? ` title="${escapeAttr(getModifiedTooltip(formatHashtagSuffix(video.originalKeywords)))}"`
+        ? ` title="${escapeAttr(getModifiedTooltip(formatTagList(video.originalKeywords)))}"`
         : '';
       const orderOnlyChanged = video.orderModified && !hasSnippetChanges(video);
       const modifiedLabel = orderOnlyChanged ? 'Reordered' : 'Modified';
       const resetDisabled = hasPendingChanges(video) ? '' : 'disabled';
-      const hashtagsPreview = formatHashtagSuffix(video.keywords);
-      const keywordsPreviewText = hashtagsPreview ? `Appended hashtags: ${hashtagsPreview}` : 'No hashtags appended';
-      const keywordsPreviewClass = hashtagsPreview ? 'keywords-preview keywords-preview--active' : 'keywords-preview';
+      const tagsPreview = formatTagList(video.keywords);
+      const keywordsPreviewText = tagsPreview ? `Tags: ${tagsPreview}` : 'No tags added';
+      const keywordsPreviewClass = tagsPreview ? 'keywords-preview keywords-preview--active' : 'keywords-preview';
       const recommendation = getVideoTagRecommendation(video.keywords);
       const recommendationClass = recommendation ? 'tag-editor__recommendation tag-editor__recommendation--warn' : 'tag-editor__recommendation';
       const recommendationText = recommendation || 'Recommended: 3-5 tags';
@@ -867,7 +878,7 @@ const App = (() => {
                 class="${descChanged ? 'modified' : ''}"${descTooltip}>${escapeHtml(video.newDescription)}</textarea>
             </div>
             <div class="video-item__field">
-              <label for="keywords-${index}">Tags / Keywords</label>
+              <label for="keywords-${index}">Tags</label>
               <div class="tag-editor ${keywordsChanged ? 'tag-editor--modified' : ''}">
                 <div class="tag-editor__chips">${chipsHtml}</div>
                 <input
@@ -1531,10 +1542,7 @@ const App = (() => {
 
     if (playlistNeedsUpdate) {
       try {
-        const playlistDescriptionToSync = composeDescriptionWithHashtags(
-          currentPlaylistEdit.newDescription,
-          currentPlaylistEdit.keywords
-        );
+        const playlistDescriptionToSync = currentPlaylistEdit.newDescription;
         await API.updatePlaylistSnippet(
           currentPlaylistEdit.playlistId,
           currentPlaylistEdit.newTitle,
@@ -1542,8 +1550,8 @@ const App = (() => {
         );
         currentPlaylistEdit.title = currentPlaylistEdit.newTitle;
         currentPlaylistEdit.description = currentPlaylistEdit.newDescription;
-        currentPlaylistEdit.originalKeywords = [...currentPlaylistEdit.keywords];
-        currentPlaylistEdit.status = 'synced';
+        const playlistKeywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+        currentPlaylistEdit.status = playlistKeywordsChanged ? 'modified' : 'synced';
         const existing = playlists.find((p) => p.id === currentPlaylistEdit.playlistId);
         if (existing) {
           existing.title = currentPlaylistEdit.newTitle;
@@ -1569,8 +1577,8 @@ const App = (() => {
       }
 
       try {
-        const descriptionToSync = composeDescriptionWithHashtags(video.newDescription, video.keywords);
-        await API.updateVideoSnippet(video, video.newTitle, descriptionToSync);
+        const descriptionToSync = video.newDescription;
+        await API.updateVideoSnippet(video, video.newTitle, descriptionToSync, video.keywords);
         // Update original data to reflect the sync
         video.title = video.newTitle;
         video.description = video.newDescription;
@@ -1805,18 +1813,12 @@ const App = (() => {
     return {
       playlistId: currentPlaylistId,
       playlistTitle: playlistName,
-      playlistDescription: composeDescriptionWithHashtags(
-        currentPlaylistEdit?.newDescription || '',
-        currentPlaylistEdit?.keywords || []
-      ),
+      playlistDescription: currentPlaylistEdit?.newDescription || '',
       playlistDescriptionBody: currentPlaylistEdit?.newDescription || '',
       playlistKeywords: [...(currentPlaylistEdit?.keywords || [])],
       playlistThumbnail: currentPlaylistEdit?.thumbnail || '',
       originalPlaylistTitle: currentPlaylistEdit?.title || '',
-      originalPlaylistDescription: composeDescriptionWithHashtags(
-        currentPlaylistEdit?.description || '',
-        currentPlaylistEdit?.originalKeywords || []
-      ),
+      originalPlaylistDescription: currentPlaylistEdit?.description || '',
       originalPlaylistDescriptionBody: currentPlaylistEdit?.description || '',
       originalPlaylistKeywords: [...(currentPlaylistEdit?.originalKeywords || [])],
       exportedAt: new Date().toISOString(),
@@ -1827,12 +1829,12 @@ const App = (() => {
         originalOrder: typeof video.originalOrder === 'number' ? video.originalOrder : null,
         videoId: video.videoId,
         title: video.newTitle,
-        description: composeDescriptionWithHashtags(video.newDescription, video.keywords),
+        description: video.newDescription,
         descriptionBody: video.newDescription,
         keywords: [...(video.keywords || [])],
         publishedAt: video.publishedAt || '',
         originalTitle: video.title,
-        originalDescription: composeDescriptionWithHashtags(video.description, video.originalKeywords),
+        originalDescription: video.description,
         originalDescriptionBody: video.description,
         originalKeywords: [...(video.originalKeywords || [])],
       })),
@@ -2096,37 +2098,11 @@ const App = (() => {
   }
 
   function resolveEditableDescriptionState({ fullDescription, body, keywords }) {
-    const parsed = splitDescriptionAndHashtags(fullDescription);
-    const resolvedBody = typeof body === 'string' ? body : parsed.body;
-    const resolvedKeywords = Array.isArray(keywords) ? sanitizeKeywords(keywords) : parsed.keywords;
+    const resolvedBody = typeof body === 'string' ? body : String(fullDescription ?? '');
+    const resolvedKeywords = Array.isArray(keywords) ? sanitizeKeywords(keywords) : [];
     return {
       body: resolvedBody || '',
       keywords: [...resolvedKeywords],
-    };
-  }
-
-  function splitDescriptionAndHashtags(fullDescription) {
-    const normalized = String(fullDescription ?? '').replace(/\r\n?/g, '\n').trimEnd();
-    if (!normalized) {
-      return { body: '', keywords: [] };
-    }
-
-    const match = normalized.match(/(?:\n\s*|\s+)?((?:#[A-Za-z0-9_-]+\s*)+)$/);
-    if (!match) {
-      return { body: normalized, keywords: [] };
-    }
-
-    const trailing = String(match[1] || '').trim();
-    const trailingKeywords = sanitizeKeywords(
-      trailing.split(/\s+/).map((token) => token.replace(/^#+/, ''))
-    );
-    if (trailingKeywords.length === 0) {
-      return { body: normalized, keywords: [] };
-    }
-
-    return {
-      body: normalized.slice(0, match.index).trimEnd(),
-      keywords: trailingKeywords,
     };
   }
 
@@ -2165,18 +2141,10 @@ const App = (() => {
     return sanitizeKeywords(keywords).join(', ');
   }
 
-  function formatHashtagSuffix(keywords) {
+  function formatTagList(keywords) {
     const normalized = sanitizeKeywords(keywords);
     if (normalized.length === 0) return '';
-    return normalized.map((keyword) => `#${keyword}`).join(' ');
-  }
-
-  function composeDescriptionWithHashtags(descriptionBody, keywords) {
-    const body = String(descriptionBody ?? '').trimEnd();
-    const hashtagSuffix = formatHashtagSuffix(keywords);
-    if (!hashtagSuffix) return body;
-    if (!body) return hashtagSuffix;
-    return `${body}\n\n${hashtagSuffix}`;
+    return normalized.join(', ');
   }
 
   function areKeywordListsEqual(a, b) {
@@ -2200,7 +2168,7 @@ const App = (() => {
       : '';
     return normalized.map((tag) => (
       `<span class="tag-chip">` +
-        `<span class="tag-chip__label">#${escapeHtml(tag)}</span>` +
+        `<span class="tag-chip__label">${escapeHtml(tag)}</span>` +
         `<button type="button" class="tag-chip__remove" data-scope="${escapeAttr(scope)}"${indexAttr} data-tag="${escapeAttr(tag)}" aria-label="Remove tag ${escapeAttr(tag)}">×</button>` +
       `</span>`
     )).join('');

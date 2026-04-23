@@ -174,7 +174,7 @@ const API = (() => {
    * IMPORTANT: We must send the full snippet to avoid data loss.
    * Cost: 50 units per update.
    */
-  async function updateVideoSnippet(video, newTitle, newDescription) {
+  async function updateVideoSnippet(video, newTitle, newDescription, newTags = []) {
     // First fetch fresh snippet to avoid overwriting concurrent changes
     const freshResponse = await gapi.client.youtube.videos.list({
       part: 'snippet',
@@ -191,6 +191,7 @@ const API = (() => {
     const snippet = { ...freshItem.snippet };
     snippet.title = newTitle;
     snippet.description = newDescription;
+    snippet.tags = Array.isArray(newTags) ? newTags : [];
 
     const response = await gapi.client.youtube.videos.update({
       part: 'snippet',
