@@ -179,6 +179,9 @@
           </div>
           <div class="playlist-editor__header-right">
             <span id="playlist-edit-status" class="video-item__status hidden">Modified</span>
+            <button id="btn-refresh-playlist" class="btn btn--secondary btn--small" disabled>
+              ↻ Refresh
+            </button>
             <button id="btn-reset-all" class="btn btn--danger btn--small" disabled>
               ⟲ Reset All
             </button>
@@ -192,6 +195,21 @@
           <div class="video-item__field">
             <label for="playlist-desc-input">Playlist Description</label>
             <textarea id="playlist-desc-input" rows="3"></textarea>
+          </div>
+          <div class="video-item__field">
+            <label for="playlist-keywords-input">Playlist Tags / Keywords</label>
+            <div class="tag-editor">
+              <div id="playlist-keywords-chips" class="tag-editor__chips"></div>
+              <input
+                type="text"
+                id="playlist-keywords-input"
+                class="tag-editor__input"
+                placeholder="music, chill, lofi"
+              />
+            </div>
+            <div id="playlist-keywords-preview" class="keywords-preview">
+              No hashtags appended
+            </div>
           </div>
         </div>
       </section>

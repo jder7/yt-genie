@@ -78,11 +78,15 @@ const App = (() => {
     $('#playlist-select').addEventListener('change', handlePlaylistChange);
     $('#playlist-title-input').addEventListener('input', handlePlaylistFieldEdit);
     $('#playlist-desc-input').addEventListener('input', handlePlaylistFieldEdit);
+    $('#playlist-keywords-input').addEventListener('input', handlePlaylistKeywordsInput);
+    $('#playlist-keywords-input').addEventListener('keydown', handlePlaylistKeywordsKeyDown);
+    $('#playlist-keywords-input').addEventListener('blur', handlePlaylistKeywordsBlur);
 
     // Actions
     $('#btn-export').addEventListener('click', handleExport);
     $('#btn-import').addEventListener('click', () => $('#import-file').click());
     $('#import-file').addEventListener('change', handleImportFile);
+    $('#btn-refresh-playlist').addEventListener('click', handleRefreshPlaylist);
     $('#btn-reset-all').addEventListener('click', handleResetAllChanges);
     $('#btn-batch-update').addEventListener('click', handleBatchUpdate);
     $('#btn-cancel-batch').addEventListener('click', cancelBatch);
@@ -90,6 +94,7 @@ const App = (() => {
     $('#btn-sort-title-desc').addEventListener('click', () => sortVideos('title', 'desc'));
     $('#btn-sort-date-asc').addEventListener('click', () => sortVideos('date', 'asc'));
     $('#btn-sort-date-desc').addEventListener('click', () => sortVideos('date', 'desc'));
+    document.addEventListener('click', handleTagChipRemove);
     document.addEventListener('dragover', handleGlobalDragOver, { passive: true });
     window.addEventListener('beforeunload', persistCurrentPlaylistDraft);
 
@@ -276,45 +281,83 @@ const App = (() => {
 
     currentPlaylistId = playlistId;
     Persistence.writeLastWorkingPlaylist(activeAccountId, playlistId);
+    await loadPlaylistForEditing(playlistId, { restoreDraft: true });
+  }
+
+  async function loadPlaylistForEditing(playlistId, options = {}) {
+    const restoreDraft = options.restoreDraft !== false;
+    const showLoadToast = options.showLoadToast !== false;
     showLoading('Loading videos…');
     try {
       videos = await API.getPlaylistVideos(playlistId);
-      editedVideos = videos.map((v) => ({
-        ...v,
-        originalOrder: 0,
-        orderModified: false,
-        newTitle: v.title,
-        newDescription: v.description,
-        status: 'unchanged', // unchanged | modified | synced | error
-      }));
+      editedVideos = videos.map((v) => {
+        const initialKeywords = Array.isArray(v.tags) && v.tags.length > 0 ? v.tags : undefined;
+        const descriptionState = resolveEditableDescriptionState({
+          fullDescription: v.description,
+          keywords: initialKeywords,
+        });
+        return {
+          ...v,
+          description: descriptionState.body,
+          newDescription: descriptionState.body,
+          originalKeywords: [...descriptionState.keywords],
+          keywords: [...descriptionState.keywords],
+          originalOrder: 0,
+          orderModified: false,
+          newTitle: v.title,
+          status: 'unchanged', // unchanged | modified | synced | error
+        };
+      });
       editedVideos.forEach((v, index) => {
         v.originalOrder = typeof v.position === 'number' ? v.position : index;
         v.position = typeof v.position === 'number' ? v.position : index;
       });
       const selectedPlaylist = playlists.find((p) => p.id === playlistId);
+      const playlistDescriptionState = resolveEditableDescriptionState({
+        fullDescription: selectedPlaylist?.description || '',
+      });
       currentPlaylistEdit = selectedPlaylist ? {
         playlistId: selectedPlaylist.id,
         title: selectedPlaylist.title || '',
-        description: selectedPlaylist.description || '',
+        description: playlistDescriptionState.body,
+        originalKeywords: [...playlistDescriptionState.keywords],
+        keywords: [...playlistDescriptionState.keywords],
         thumbnail: selectedPlaylist.thumbnail || '',
         newTitle: selectedPlaylist.title || '',
-        newDescription: selectedPlaylist.description || '',
+        newDescription: playlistDescriptionState.body,
         status: 'unchanged',
       } : null;
-      const hasDraft = applyStoredDraftForCurrentPlaylist();
+      const hasDraft = restoreDraft ? applyStoredDraftForCurrentPlaylist() : false;
       renderVideoList();
       renderPlaylistEditor();
       updateStats();
       hideLoading();
-      if (hasDraft) {
-        toast(`Loaded ${videos.length} video(s). Restored local draft.`, 'info');
-      } else {
-        toast(`Loaded ${videos.length} video(s).`, 'info');
+      if (showLoadToast) {
+        if (restoreDraft && hasDraft) {
+          toast(`Loaded ${videos.length} video(s). Restored local draft.`, 'info');
+        } else {
+          toast(`Loaded ${videos.length} video(s).`, 'info');
+        }
       }
     } catch (e) {
       hideLoading();
       toast('Failed to load videos: ' + e.message, 'error');
     }
+  }
+
+  async function handleRefreshPlaylist() {
+    if (!currentPlaylistId) return;
+    if (hasAnyCurrentChanges()) {
+      const confirmed = confirm('Refresh from YouTube and discard unsynced local changes for this playlist?');
+      if (!confirmed) return;
+    }
+
+    Persistence.removePlaylistDraft(activeAccountId, currentPlaylistId);
+    await loadPlaylistForEditing(currentPlaylistId, { restoreDraft: false, showLoadToast: false });
+    refreshPlaylistSelectorDraftMarkers();
+    const select = $('#playlist-select');
+    if (select) select.value = currentPlaylistId;
+    toast('Playlist refreshed from YouTube.', 'success');
   }
 
   function handlePlaylistFieldEdit(e) {
@@ -327,23 +370,81 @@ const App = (() => {
 
     const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
     const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-    currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
+    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+    currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
     updatePlaylistStatusBadge();
+    updatePlaylistKeywordsPreview();
     updateStats();
     persistCurrentPlaylistDraft();
+  }
+
+  function handlePlaylistKeywordsInput(e) {
+    if (!currentPlaylistEdit) return;
+    if (!/[,\n]/.test(e.target.value)) return;
+    commitPlaylistKeywordsFromInput(e.target);
+  }
+
+  function handlePlaylistKeywordsKeyDown(e) {
+    if (!currentPlaylistEdit) return;
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      commitPlaylistKeywordsFromInput(e.currentTarget);
+      return;
+    }
+    if (e.key === 'Backspace' && !e.currentTarget.value.trim() && currentPlaylistEdit.keywords.length > 0) {
+      currentPlaylistEdit.keywords = currentPlaylistEdit.keywords.slice(0, -1);
+      updatePlaylistKeywordsStateAfterEdit();
+      renderPlaylistEditor();
+      persistCurrentPlaylistDraft();
+    }
+  }
+
+  function handlePlaylistKeywordsBlur(e) {
+    if (!currentPlaylistEdit) return;
+    commitPlaylistKeywordsFromInput(e.currentTarget);
+  }
+
+  function commitPlaylistKeywordsFromInput(inputEl) {
+    if (!currentPlaylistEdit || !inputEl) return;
+    const additions = parseKeywordsInput(inputEl.value);
+    inputEl.value = '';
+    if (additions.length === 0) return;
+
+    currentPlaylistEdit.keywords = sanitizeKeywords([...(currentPlaylistEdit.keywords || []), ...additions]);
+    updatePlaylistKeywordsStateAfterEdit();
+    renderPlaylistEditor();
+    persistCurrentPlaylistDraft();
+  }
+
+  function updatePlaylistKeywordsStateAfterEdit() {
+    if (!currentPlaylistEdit) return;
+    const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
+    const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
+    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+    currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
+    updatePlaylistStatusBadge();
+    updatePlaylistKeywordsPreview();
+    updateStats();
   }
 
   function renderPlaylistEditor() {
     const editor = $('#playlist-editor');
     const titleInput = $('#playlist-title-input');
     const descInput = $('#playlist-desc-input');
+    const keywordsInput = $('#playlist-keywords-input');
+    const keywordsPreview = $('#playlist-keywords-preview');
     const thumbnailEl = $('#playlist-thumb');
-    if (!editor || !titleInput || !descInput || !thumbnailEl) return;
+    if (!editor || !titleInput || !descInput || !keywordsInput || !keywordsPreview || !thumbnailEl) return;
 
     if (!currentPlaylistEdit) {
       editor.classList.add('hidden');
       titleInput.value = '';
       descInput.value = '';
+      keywordsInput.value = '';
+      keywordsInput.removeAttribute('title');
+      keywordsInput.closest('.tag-editor')?.classList.remove('tag-editor--modified');
+      keywordsPreview.textContent = 'No hashtags appended';
+      keywordsPreview.classList.remove('keywords-preview--active');
       thumbnailEl.src = '';
       thumbnailEl.classList.add('hidden');
       return;
@@ -360,6 +461,13 @@ const App = (() => {
     descInput.title = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description
       ? getModifiedTooltip(currentPlaylistEdit.description)
       : '';
+    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+    keywordsInput.value = '';
+    keywordsInput.closest('.tag-editor')?.classList.toggle('tag-editor--modified', keywordsChanged);
+    keywordsInput.title = keywordsChanged
+      ? getModifiedTooltip(formatHashtagSuffix(currentPlaylistEdit.originalKeywords))
+      : '';
+    updatePlaylistKeywordsPreview();
     if (currentPlaylistEdit.thumbnail) {
       thumbnailEl.src = currentPlaylistEdit.thumbnail;
       thumbnailEl.alt = currentPlaylistEdit.newTitle
@@ -371,6 +479,23 @@ const App = (() => {
       thumbnailEl.classList.add('hidden');
     }
     updatePlaylistStatusBadge();
+  }
+
+  function updatePlaylistKeywordsPreview() {
+    const preview = $('#playlist-keywords-preview');
+    if (!preview || !currentPlaylistEdit) return;
+    const hashtags = formatHashtagSuffix(currentPlaylistEdit.keywords);
+    const chips = $('#playlist-keywords-chips');
+    if (chips) {
+      chips.innerHTML = renderTagChips(currentPlaylistEdit.keywords, { scope: 'playlist' });
+    }
+    if (hashtags) {
+      preview.textContent = `Appended hashtags: ${hashtags}`;
+      preview.classList.add('keywords-preview--active');
+    } else {
+      preview.textContent = 'No hashtags appended';
+      preview.classList.remove('keywords-preview--active');
+    }
   }
 
   function updatePlaylistStatusBadge() {
@@ -396,7 +521,9 @@ const App = (() => {
   }
 
   function hasSnippetChanges(video) {
-    return video.newTitle !== video.title || video.newDescription !== video.description;
+    return video.newTitle !== video.title
+      || video.newDescription !== video.description
+      || !areKeywordListsEqual(video.keywords, video.originalKeywords);
   }
 
   function hasPendingChanges(video) {
@@ -453,23 +580,43 @@ const App = (() => {
       })
       .map((video) => video.playlistItemId);
 
+    const desiredIndexById = new Map(desiredOrderIds.map((id, index) => [id, index]));
+    const mappedCurrent = currentOrderIds
+      .map((id) => desiredIndexById.get(id))
+      .filter((value) => typeof value === 'number');
+    const lisIndices = longestIncreasingSubsequenceIndices(mappedCurrent);
+    const keepIdSet = new Set(lisIndices.map((index) => currentOrderIds[index]));
+
     const videoByPlaylistItemId = new Map(persistableVideos.map((video) => [video.playlistItemId, video]));
     const workingOrder = [...currentOrderIds];
     const operations = [];
 
-    for (let targetIndex = 0; targetIndex < desiredOrderIds.length; targetIndex++) {
+    // Move only non-LIS items; this minimizes reorder API calls for insertion moves.
+    for (let targetIndex = desiredOrderIds.length - 1; targetIndex >= 0; targetIndex--) {
       const desiredId = desiredOrderIds[targetIndex];
-      if (workingOrder[targetIndex] === desiredId) continue;
+      if (keepIdSet.has(desiredId)) continue;
 
       const fromIndex = workingOrder.indexOf(desiredId);
       if (fromIndex === -1) continue;
 
-      const video = videoByPlaylistItemId.get(desiredId);
-      if (!video) continue;
+      let insertAt = workingOrder.length;
+      for (let rightIndex = targetIndex + 1; rightIndex < desiredOrderIds.length; rightIndex++) {
+        const rightId = desiredOrderIds[rightIndex];
+        const existingIndex = workingOrder.indexOf(rightId);
+        if (existingIndex !== -1) {
+          insertAt = existingIndex;
+          break;
+        }
+      }
 
-      operations.push({ video, targetIndex });
-      workingOrder.splice(fromIndex, 1);
-      workingOrder.splice(targetIndex, 0, desiredId);
+      const [movedId] = workingOrder.splice(fromIndex, 1);
+      if (fromIndex < insertAt) insertAt -= 1;
+      workingOrder.splice(insertAt, 0, movedId);
+
+      if (fromIndex !== insertAt) {
+        const video = videoByPlaylistItemId.get(desiredId);
+        if (video) operations.push({ video, targetIndex: insertAt });
+      }
     }
 
     return {
@@ -478,6 +625,47 @@ const App = (() => {
       skipped,
       changedPersistable,
     };
+  }
+
+  function longestIncreasingSubsequenceIndices(values) {
+    if (!Array.isArray(values) || values.length === 0) return [];
+
+    const tails = [];
+    const tailsIndices = [];
+    const prev = new Array(values.length).fill(-1);
+
+    for (let i = 0; i < values.length; i++) {
+      const value = values[i];
+      let left = 0;
+      let right = tails.length;
+
+      while (left < right) {
+        const mid = (left + right) >> 1;
+        if (tails[mid] < value) {
+          left = mid + 1;
+        } else {
+          right = mid;
+        }
+      }
+
+      if (left > 0) prev[i] = tailsIndices[left - 1];
+      if (left === tails.length) {
+        tails.push(value);
+        tailsIndices.push(i);
+      } else {
+        tails[left] = value;
+        tailsIndices[left] = i;
+      }
+    }
+
+    const result = [];
+    let cursor = tailsIndices[tailsIndices.length - 1];
+    while (cursor !== -1 && cursor != null) {
+      result.push(cursor);
+      cursor = prev[cursor];
+    }
+    result.reverse();
+    return result;
   }
 
   function computeSyncPlan() {
@@ -585,17 +773,37 @@ const App = (() => {
     editedVideos.forEach((video, index) => {
       const titleChanged = video.newTitle !== video.title;
       const descChanged = video.newDescription !== video.description;
+      const keywordsChanged = !areKeywordListsEqual(video.keywords, video.originalKeywords);
+      const isFuturePublish = isFuturePublishVideo(video);
+      const privacyStatus = normalizePrivacyStatus(video.privacyStatus);
+      const isPrivateVideo = privacyStatus === 'private';
+      const isPublicVideo = privacyStatus === 'public';
       const titleTooltip = titleChanged ? ` title="${escapeAttr(getModifiedTooltip(video.title))}"` : '';
       const descTooltip = descChanged ? ` title="${escapeAttr(getModifiedTooltip(video.description))}"` : '';
+      const keywordsTooltip = keywordsChanged
+        ? ` title="${escapeAttr(getModifiedTooltip(formatHashtagSuffix(video.originalKeywords)))}"`
+        : '';
       const orderOnlyChanged = video.orderModified && !hasSnippetChanges(video);
       const modifiedLabel = orderOnlyChanged ? 'Reordered' : 'Modified';
       const resetDisabled = hasPendingChanges(video) ? '' : 'disabled';
+      const hashtagsPreview = formatHashtagSuffix(video.keywords);
+      const keywordsPreviewText = hashtagsPreview ? `Appended hashtags: ${hashtagsPreview}` : 'No hashtags appended';
+      const keywordsPreviewClass = hashtagsPreview ? 'keywords-preview keywords-preview--active' : 'keywords-preview';
+      const recommendation = getVideoTagRecommendation(video.keywords);
+      const recommendationClass = recommendation ? 'tag-editor__recommendation tag-editor__recommendation--warn' : 'tag-editor__recommendation';
+      const recommendationText = recommendation || 'Recommended: 3-5 tags';
+      const chipsHtml = renderTagChips(video.keywords, { scope: 'video', index });
+      const scheduledFutureAt = getScheduledFutureDate(video);
+      const futureChipTitle = isFuturePublish && scheduledFutureAt
+        ? `Scheduled for future publishing (${formatDateTime(scheduledFutureAt)})`
+        : 'Scheduled for future publishing';
+      const primaryDateText = formatPrimaryVideoDate(video);
       const thumbnail = video.thumbnail
         ? `<img class="video-item__thumb" src="${escapeAttr(video.thumbnail)}" alt="${escapeAttr(`Thumbnail for ${video.newTitle || video.title || 'video'}`)}" loading="lazy" />`
         : '<div class="video-item__thumb video-item__thumb--placeholder">No thumbnail</div>';
 
       const item = document.createElement('div');
-      item.className = `video-item ${video.status !== 'unchanged' ? 'video-item--' + video.status : ''} video-item--draggable`;
+      item.className = `video-item ${video.status !== 'unchanged' ? 'video-item--' + video.status : ''} ${isFuturePublish ? 'video-item--future' : ''} ${isPrivateVideo ? 'video-item--private' : ''} ${isPublicVideo ? 'video-item--public' : ''} video-item--draggable`;
       if (skipEntryAnimation) {
         item.style.animation = 'none';
         item.style.animationDelay = '0s';
@@ -633,10 +841,12 @@ const App = (() => {
               />
             </div>
             <div class="video-item__meta">
-              <div class="video-item__upload-date">${escapeHtml(formatUploadDate(video.publishedAt))}</div>
+              <div class="video-item__date-inline">${escapeHtml(primaryDateText)}</div>
             </div>
           </div>
           <div class="video-item__header-right">
+            ${isFuturePublish ? `<span class="video-item__future-chip" title="${escapeAttr(futureChipTitle)}">✦ Future</span>` : ''}
+            <span class="video-item__privacy-chip video-item__privacy-chip--${escapeAttr(privacyStatus)}" title="${escapeAttr(`status.privacyStatus: ${privacyStatus}`)}">${escapeHtml(privacyStatus)}</span>
             ${statusLabels[video.status] || ''}
             <button class="video-item__reset-chip" data-index="${index}" ${resetDisabled} title="Reset this video changes">Reset Video</button>
             ${rightHandle}
@@ -656,6 +866,23 @@ const App = (() => {
                 data-index="${index}" data-field="newDescription"
                 class="${descChanged ? 'modified' : ''}"${descTooltip}>${escapeHtml(video.newDescription)}</textarea>
             </div>
+            <div class="video-item__field">
+              <label for="keywords-${index}">Tags / Keywords</label>
+              <div class="tag-editor ${keywordsChanged ? 'tag-editor--modified' : ''}">
+                <div class="tag-editor__chips">${chipsHtml}</div>
+                <input
+                  type="text"
+                  id="keywords-${index}"
+                  value=""
+                  data-index="${index}"
+                  data-field="keywords"
+                  class="tag-editor__input"${keywordsTooltip}
+                  placeholder="Type a tag, press Enter or comma"
+                />
+              </div>
+              <div class="${keywordsPreviewClass}">${escapeHtml(keywordsPreviewText)}</div>
+              <div class="${recommendationClass}">${escapeHtml(recommendationText)}</div>
+            </div>
           </div>
           <div class="video-item__media">
             ${thumbnail}
@@ -666,11 +893,15 @@ const App = (() => {
       // Bind input events
       const titleInput = item.querySelector(`#title-${index}`);
       const descInput = item.querySelector(`#desc-${index}`);
+      const keywordsInput = item.querySelector(`#keywords-${index}`);
       const orderInput = item.querySelector(`#order-${index}`);
       const resetVideoButton = item.querySelector('.video-item__reset-chip');
 
       titleInput.addEventListener('input', handleFieldEdit);
       descInput.addEventListener('input', handleFieldEdit);
+      keywordsInput.addEventListener('input', handleVideoKeywordsInput);
+      keywordsInput.addEventListener('keydown', handleVideoKeywordsKeyDown);
+      keywordsInput.addEventListener('blur', handleVideoKeywordsBlur);
       orderInput.addEventListener('change', handleOrderInputChange);
       orderInput.addEventListener('keydown', handleOrderInputKeyDown);
       resetVideoButton.addEventListener('click', handleResetVideo);
@@ -733,6 +964,7 @@ const App = (() => {
     const video = editedVideos[index];
     video.newTitle = video.title;
     video.newDescription = video.description;
+    video.keywords = [...(video.originalKeywords || [])];
     delete video.errorMessage;
 
     const targetIndex = Math.max(0, Math.min(editedVideos.length - 1, video.originalOrder ?? index));
@@ -756,13 +988,20 @@ const App = (() => {
     const v = editedVideos[index];
     const titleChanged = v.newTitle !== v.title;
     const descChanged = v.newDescription !== v.description;
-    v.status = (titleChanged || descChanged || v.orderModified) ? 'modified' : (v.status === 'synced' ? 'synced' : 'unchanged');
+    const keywordsChanged = !areKeywordListsEqual(v.keywords, v.originalKeywords);
+    v.status = (titleChanged || descChanged || keywordsChanged || v.orderModified)
+      ? 'modified'
+      : (v.status === 'synced' ? 'synced' : 'unchanged');
 
     // Update CSS classes
-    const changed = field === 'newTitle' ? titleChanged : descChanged;
+    const changed = field === 'newTitle'
+      ? titleChanged
+      : descChanged;
     e.target.classList.toggle('modified', changed);
     if (changed) {
-      const originalValue = field === 'newTitle' ? v.title : v.description;
+      const originalValue = field === 'newTitle'
+        ? v.title
+        : v.description;
       e.target.title = getModifiedTooltip(originalValue);
     } else {
       e.target.removeAttribute('title');
@@ -789,6 +1028,72 @@ const App = (() => {
 
     updateStats();
     persistCurrentPlaylistDraft();
+  }
+
+  function handleVideoKeywordsInput(e) {
+    if (!/[,\n]/.test(e.target.value)) return;
+    commitVideoKeywordsFromInput(e.target);
+  }
+
+  function handleVideoKeywordsKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      commitVideoKeywordsFromInput(e.currentTarget);
+      return;
+    }
+
+    const index = parseInt(e.currentTarget.dataset.index, 10);
+    if (e.key === 'Backspace'
+      && !e.currentTarget.value.trim()
+      && !Number.isNaN(index)
+      && editedVideos[index]
+      && editedVideos[index].keywords.length > 0) {
+      editedVideos[index].keywords = editedVideos[index].keywords.slice(0, -1);
+      refreshVideoStatusAfterKeywordEdit(index);
+      renderVideoList({ skipEntryAnimation: true });
+      updateStats();
+      persistCurrentPlaylistDraft();
+      window.requestAnimationFrame(() => {
+        const input = document.querySelector(`#keywords-${index}`);
+        if (input) input.focus({ preventScroll: true });
+      });
+    }
+  }
+
+  function handleVideoKeywordsBlur(e) {
+    commitVideoKeywordsFromInput(e.currentTarget);
+  }
+
+  function commitVideoKeywordsFromInput(inputEl) {
+    const index = parseInt(inputEl?.dataset?.index, 10);
+    if (Number.isNaN(index) || index < 0 || index >= editedVideos.length) return;
+
+    const additions = parseKeywordsInput(inputEl.value);
+    inputEl.value = '';
+    if (additions.length === 0) return;
+
+    const video = editedVideos[index];
+    video.keywords = sanitizeKeywords([...(video.keywords || []), ...additions]);
+    refreshVideoStatusAfterKeywordEdit(index);
+
+    renderVideoList({ skipEntryAnimation: true });
+    updateStats();
+    persistCurrentPlaylistDraft();
+    window.requestAnimationFrame(() => {
+      const refreshed = document.querySelector(`#keywords-${index}`);
+      if (refreshed) refreshed.focus({ preventScroll: true });
+    });
+  }
+
+  function refreshVideoStatusAfterKeywordEdit(index) {
+    const video = editedVideos[index];
+    if (!video) return;
+    const titleChanged = video.newTitle !== video.title;
+    const descChanged = video.newDescription !== video.description;
+    const keywordsChanged = !areKeywordListsEqual(video.keywords, video.originalKeywords);
+    video.status = (titleChanged || descChanged || keywordsChanged || video.orderModified)
+      ? 'modified'
+      : (video.status === 'synced' ? 'synced' : 'unchanged');
   }
 
   function handleDragStart(e, index) {
@@ -861,6 +1166,48 @@ const App = (() => {
     }
   }
 
+  function handleTagChipRemove(e) {
+    const removeBtn = e.target.closest('.tag-chip__remove');
+    if (!removeBtn) return;
+
+    const scope = removeBtn.dataset.scope;
+    const rawTag = String(removeBtn.dataset.tag || '').trim();
+    if (!rawTag) return;
+    const normalizedTag = rawTag.toLowerCase();
+
+    if (scope === 'video') {
+      const index = parseInt(removeBtn.dataset.index, 10);
+      if (Number.isNaN(index) || index < 0 || index >= editedVideos.length) return;
+      const video = editedVideos[index];
+      video.keywords = sanitizeKeywords(video.keywords)
+        .filter((tag) => tag.toLowerCase() !== normalizedTag);
+
+      const titleChanged = video.newTitle !== video.title;
+      const descChanged = video.newDescription !== video.description;
+      const keywordsChanged = !areKeywordListsEqual(video.keywords, video.originalKeywords);
+      video.status = (titleChanged || descChanged || keywordsChanged || video.orderModified)
+        ? 'modified'
+        : (video.status === 'synced' ? 'synced' : 'unchanged');
+
+      renderVideoList({ skipEntryAnimation: true });
+      updateStats();
+      persistCurrentPlaylistDraft();
+      return;
+    }
+
+    if (scope === 'playlist' && currentPlaylistEdit) {
+      currentPlaylistEdit.keywords = sanitizeKeywords(currentPlaylistEdit.keywords)
+        .filter((tag) => tag.toLowerCase() !== normalizedTag);
+      const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
+      const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
+      const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+      currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
+      renderPlaylistEditor();
+      updateStats();
+      persistCurrentPlaylistDraft();
+    }
+  }
+
   // --- Export ---
   function handleExport() {
     if (editedVideos.length === 0) {
@@ -919,47 +1266,88 @@ const App = (() => {
             ? editedVideos.find((v) => getImportMatchKey(v) === key)
             : editedVideos.find((v) => v.videoId === imported.videoId);
           if (existing) {
-            existing.newTitle = imported.title;
-            existing.newDescription = imported.description;
-            const titleChanged = existing.newTitle !== existing.title;
-            const descChanged = existing.newDescription !== existing.description;
-            existing.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
+            if (typeof imported.title === 'string') {
+              existing.newTitle = imported.title;
+            }
+            const hasImportedDescriptionData =
+              typeof imported.description === 'string'
+              || typeof imported.descriptionBody === 'string'
+              || Array.isArray(imported.keywords);
+            if (hasImportedDescriptionData) {
+              const importedDescriptionState = resolveEditableDescriptionState({
+                fullDescription: imported.description,
+                body: imported.descriptionBody,
+                keywords: imported.keywords,
+              });
+              existing.newDescription = importedDescriptionState.body;
+              existing.keywords = [...importedDescriptionState.keywords];
+            }
+            existing.status = hasSnippetChanges(existing) ? 'modified' : 'unchanged';
             matchCount++;
           }
         }
         applyImportedOrder(sourceVideos);
         if (currentPlaylistEdit) {
           if (typeof data.playlistTitle === 'string') currentPlaylistEdit.newTitle = data.playlistTitle;
-          if (typeof data.playlistDescription === 'string') currentPlaylistEdit.newDescription = data.playlistDescription;
+          const hasPlaylistDescriptionData =
+            typeof data.playlistDescription === 'string'
+            || typeof data.playlistDescriptionBody === 'string'
+            || Array.isArray(data.playlistKeywords);
+          if (hasPlaylistDescriptionData) {
+            const playlistDescriptionState = resolveEditableDescriptionState({
+              fullDescription: data.playlistDescription,
+              body: data.playlistDescriptionBody,
+              keywords: data.playlistKeywords,
+            });
+            currentPlaylistEdit.newDescription = playlistDescriptionState.body;
+            currentPlaylistEdit.keywords = [...playlistDescriptionState.keywords];
+          }
           if (typeof data.playlistThumbnail === 'string') currentPlaylistEdit.thumbnail = data.playlistThumbnail;
           const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
           const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-          currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
+          const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+          currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
         }
         syncOrderFlags();
         renderPlaylistEditor();
         toast(`Imported changes for ${matchCount} video(s).`, 'success');
       } else {
         // Load as standalone review data
-        editedVideos = data.videos.map((v) => ({
-          playlistItemId: v.playlistItemId || '',
-          playlistId: v.playlistId || data.playlistId || '',
-          position: typeof v.position === 'number' ? v.position : null,
-          videoId: v.videoId,
-          title: v.originalTitle || v.title,
-          description: v.originalDescription || v.description,
-          newTitle: v.title,
-          newDescription: v.description,
-          publishedAt: v.publishedAt || '',
-          categoryId: v.categoryId || '',
-          tags: v.tags || [],
-          defaultLanguage: v.defaultLanguage || '',
-          thumbnail: v.thumbnail || '',
-          privacyStatus: '',
-          _originalSnippet: null,
-          status: (v.title !== (v.originalTitle || v.title) || v.description !== (v.originalDescription || v.description))
-            ? 'modified' : 'unchanged',
-        }));
+        editedVideos = data.videos.map((v) => {
+          const originalState = resolveEditableDescriptionState({
+            fullDescription: v.originalDescription || v.description,
+            body: v.originalDescriptionBody,
+            keywords: v.originalKeywords,
+          });
+          const currentState = resolveEditableDescriptionState({
+            fullDescription: v.description,
+            body: v.descriptionBody,
+            keywords: v.keywords,
+          });
+          return {
+            playlistItemId: v.playlistItemId || '',
+            playlistId: v.playlistId || data.playlistId || '',
+            position: typeof v.position === 'number' ? v.position : null,
+            videoId: v.videoId,
+            title: v.originalTitle || v.title,
+            description: originalState.body,
+            newTitle: typeof v.title === 'string' ? v.title : (v.originalTitle || ''),
+            newDescription: currentState.body,
+            originalKeywords: [...originalState.keywords],
+            keywords: [...currentState.keywords],
+            publishedAt: v.publishedAt || '',
+            categoryId: v.categoryId || '',
+            tags: v.tags || [],
+            defaultLanguage: v.defaultLanguage || '',
+            thumbnail: v.thumbnail || '',
+            privacyStatus: '',
+            _originalSnippet: null,
+            status: 'unchanged',
+          };
+        });
+        editedVideos.forEach((video) => {
+          video.status = hasSnippetChanges(video) ? 'modified' : 'unchanged';
+        });
         const importedByKey = new Map();
         for (const imported of data.videos) {
           const key = getImportMatchKey(imported);
@@ -983,18 +1371,34 @@ const App = (() => {
           video.originalOrder = originalOrder;
           video.orderModified = idx !== originalOrder;
         });
+        const importedPlaylistDescriptionState = resolveEditableDescriptionState({
+          fullDescription: data.originalPlaylistDescription || data.playlistDescription || '',
+          body: data.originalPlaylistDescriptionBody,
+          keywords: data.originalPlaylistKeywords,
+        });
+        const importedCurrentPlaylistDescriptionState = resolveEditableDescriptionState({
+          fullDescription: data.playlistDescription || '',
+          body: data.playlistDescriptionBody,
+          keywords: data.playlistKeywords,
+        });
         currentPlaylistId = data.playlistId || null;
         currentPlaylistEdit = {
           playlistId: data.playlistId || null,
           title: data.originalPlaylistTitle || data.playlistTitle || '',
-          description: data.originalPlaylistDescription || data.playlistDescription || '',
+          description: importedPlaylistDescriptionState.body,
+          originalKeywords: [...importedPlaylistDescriptionState.keywords],
+          keywords: [...importedCurrentPlaylistDescriptionState.keywords],
           thumbnail: data.playlistThumbnail || '',
           newTitle: data.playlistTitle || '',
-          newDescription: data.playlistDescription || '',
+          newDescription: importedCurrentPlaylistDescriptionState.body,
           status: 'unchanged',
         };
         currentPlaylistEdit.status =
-          (currentPlaylistEdit.newTitle !== currentPlaylistEdit.title || currentPlaylistEdit.newDescription !== currentPlaylistEdit.description)
+          (
+            currentPlaylistEdit.newTitle !== currentPlaylistEdit.title
+            || currentPlaylistEdit.newDescription !== currentPlaylistEdit.description
+            || !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords)
+          )
             ? 'modified'
             : 'unchanged';
         syncOrderFlags();
@@ -1025,6 +1429,7 @@ const App = (() => {
     editedVideos.forEach((video) => {
       video.newTitle = video.title;
       video.newDescription = video.description;
+      video.keywords = [...(video.originalKeywords || [])];
       delete video.errorMessage;
     });
 
@@ -1055,6 +1460,7 @@ const App = (() => {
     if (currentPlaylistEdit) {
       currentPlaylistEdit.newTitle = currentPlaylistEdit.title;
       currentPlaylistEdit.newDescription = currentPlaylistEdit.description;
+      currentPlaylistEdit.keywords = [...(currentPlaylistEdit.originalKeywords || [])];
       currentPlaylistEdit.status = 'unchanged';
     }
 
@@ -1121,21 +1527,27 @@ const App = (() => {
 
     let completed = 0;
     let errors = 0;
+    let reorderBlockedBySortType = false;
 
     if (playlistNeedsUpdate) {
       try {
+        const playlistDescriptionToSync = composeDescriptionWithHashtags(
+          currentPlaylistEdit.newDescription,
+          currentPlaylistEdit.keywords
+        );
         await API.updatePlaylistSnippet(
           currentPlaylistEdit.playlistId,
           currentPlaylistEdit.newTitle,
-          currentPlaylistEdit.newDescription
+          playlistDescriptionToSync
         );
         currentPlaylistEdit.title = currentPlaylistEdit.newTitle;
         currentPlaylistEdit.description = currentPlaylistEdit.newDescription;
+        currentPlaylistEdit.originalKeywords = [...currentPlaylistEdit.keywords];
         currentPlaylistEdit.status = 'synced';
         const existing = playlists.find((p) => p.id === currentPlaylistEdit.playlistId);
         if (existing) {
           existing.title = currentPlaylistEdit.newTitle;
-          existing.description = currentPlaylistEdit.newDescription;
+          existing.description = playlistDescriptionToSync;
           renderPlaylistSelector();
           $('#playlist-select').value = currentPlaylistEdit.playlistId;
         }
@@ -1157,10 +1569,12 @@ const App = (() => {
       }
 
       try {
-        await API.updateVideoSnippet(video, video.newTitle, video.newDescription);
+        const descriptionToSync = composeDescriptionWithHashtags(video.newDescription, video.keywords);
+        await API.updateVideoSnippet(video, video.newTitle, descriptionToSync);
         // Update original data to reflect the sync
         video.title = video.newTitle;
         video.description = video.newDescription;
+        video.originalKeywords = [...video.keywords];
         video.status = video.orderModified ? 'modified' : 'synced';
         completed++;
       } catch (e) {
@@ -1202,9 +1616,17 @@ const App = (() => {
         completed++;
       } catch (e) {
         video.status = 'error';
-        video.errorMessage = e.message;
+        if (isManualSortRequiredError(e)) {
+          reorderBlockedBySortType = true;
+          video.errorMessage = 'Reorder blocked: playlist sort type must be Manual on YouTube.';
+        } else {
+          video.errorMessage = e.message;
+        }
         errors++;
         console.error(`Failed to reorder playlistItem ${video.playlistItemId}:`, e);
+        if (reorderBlockedBySortType) {
+          break;
+        }
       }
 
       showBatchProgress(completed + errors, opCount);
@@ -1222,6 +1644,10 @@ const App = (() => {
     persistCurrentPlaylistDraft();
 
     if (errors > 0 || reorderSkipped > 0) {
+      if (reorderBlockedBySortType) {
+        toast('Reorder failed: playlist sort type must be Manual in YouTube to allow position updates.', 'error');
+        return;
+      }
       const skippedMsg = reorderSkipped > 0 ? `, ${reorderSkipped} reorder skipped` : '';
       toast(`Batch complete: ${completed} updated, ${errors} failed${skippedMsg}.`, 'error');
     } else {
@@ -1252,6 +1678,7 @@ const App = (() => {
     const hasVideos = total > 0;
     $('#btn-batch-update').disabled = syncPlan.opCount === 0;
     $('#btn-export').disabled = !hasVideos;
+    $('#btn-refresh-playlist').disabled = !currentPlaylistId;
     $('#btn-reset-all').disabled = !hasAnyChanges;
     $('#btn-sort-title-asc').disabled = !hasVideos;
     $('#btn-sort-title-desc').disabled = !hasVideos;
@@ -1378,10 +1805,20 @@ const App = (() => {
     return {
       playlistId: currentPlaylistId,
       playlistTitle: playlistName,
-      playlistDescription: currentPlaylistEdit?.newDescription || '',
+      playlistDescription: composeDescriptionWithHashtags(
+        currentPlaylistEdit?.newDescription || '',
+        currentPlaylistEdit?.keywords || []
+      ),
+      playlistDescriptionBody: currentPlaylistEdit?.newDescription || '',
+      playlistKeywords: [...(currentPlaylistEdit?.keywords || [])],
       playlistThumbnail: currentPlaylistEdit?.thumbnail || '',
       originalPlaylistTitle: currentPlaylistEdit?.title || '',
-      originalPlaylistDescription: currentPlaylistEdit?.description || '',
+      originalPlaylistDescription: composeDescriptionWithHashtags(
+        currentPlaylistEdit?.description || '',
+        currentPlaylistEdit?.originalKeywords || []
+      ),
+      originalPlaylistDescriptionBody: currentPlaylistEdit?.description || '',
+      originalPlaylistKeywords: [...(currentPlaylistEdit?.originalKeywords || [])],
       exportedAt: new Date().toISOString(),
       videos: editedVideos.map((video, index) => ({
         playlistItemId: video.playlistItemId || '',
@@ -1390,10 +1827,14 @@ const App = (() => {
         originalOrder: typeof video.originalOrder === 'number' ? video.originalOrder : null,
         videoId: video.videoId,
         title: video.newTitle,
-        description: video.newDescription,
+        description: composeDescriptionWithHashtags(video.newDescription, video.keywords),
+        descriptionBody: video.newDescription,
+        keywords: [...(video.keywords || [])],
         publishedAt: video.publishedAt || '',
         originalTitle: video.title,
-        originalDescription: video.description,
+        originalDescription: composeDescriptionWithHashtags(video.description, video.originalKeywords),
+        originalDescriptionBody: video.description,
+        originalKeywords: [...(video.originalKeywords || [])],
       })),
     };
   }
@@ -1422,9 +1863,13 @@ const App = (() => {
       if (typeof source.title === 'string') {
         video.newTitle = source.title;
       }
-      if (typeof source.description === 'string') {
-        video.newDescription = source.description;
-      }
+      const sourceDescriptionState = resolveEditableDescriptionState({
+        fullDescription: source.description,
+        body: source.descriptionBody,
+        keywords: source.keywords,
+      });
+      video.newDescription = sourceDescriptionState.body;
+      video.keywords = [...sourceDescriptionState.keywords];
       updatedCount++;
     }
 
@@ -1432,15 +1877,26 @@ const App = (() => {
       if (typeof draft.playlistTitle === 'string') {
         currentPlaylistEdit.newTitle = draft.playlistTitle;
       }
-      if (typeof draft.playlistDescription === 'string') {
-        currentPlaylistEdit.newDescription = draft.playlistDescription;
+      if (
+        typeof draft.playlistDescription === 'string'
+        || typeof draft.playlistDescriptionBody === 'string'
+        || Array.isArray(draft.playlistKeywords)
+      ) {
+        const playlistDescriptionState = resolveEditableDescriptionState({
+          fullDescription: draft.playlistDescription,
+          body: draft.playlistDescriptionBody,
+          keywords: draft.playlistKeywords,
+        });
+        currentPlaylistEdit.newDescription = playlistDescriptionState.body;
+        currentPlaylistEdit.keywords = [...playlistDescriptionState.keywords];
       }
       if (typeof draft.playlistThumbnail === 'string') {
         currentPlaylistEdit.thumbnail = draft.playlistThumbnail;
       }
       const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
       const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-      currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
+      const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
+      currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
     }
 
     applyImportedOrder(draft.videos);
@@ -1639,6 +2095,133 @@ const App = (() => {
     }
   }
 
+  function resolveEditableDescriptionState({ fullDescription, body, keywords }) {
+    const parsed = splitDescriptionAndHashtags(fullDescription);
+    const resolvedBody = typeof body === 'string' ? body : parsed.body;
+    const resolvedKeywords = Array.isArray(keywords) ? sanitizeKeywords(keywords) : parsed.keywords;
+    return {
+      body: resolvedBody || '',
+      keywords: [...resolvedKeywords],
+    };
+  }
+
+  function splitDescriptionAndHashtags(fullDescription) {
+    const normalized = String(fullDescription ?? '').replace(/\r\n?/g, '\n').trimEnd();
+    if (!normalized) {
+      return { body: '', keywords: [] };
+    }
+
+    const match = normalized.match(/(?:\n\s*|\s+)?((?:#[A-Za-z0-9_-]+\s*)+)$/);
+    if (!match) {
+      return { body: normalized, keywords: [] };
+    }
+
+    const trailing = String(match[1] || '').trim();
+    const trailingKeywords = sanitizeKeywords(
+      trailing.split(/\s+/).map((token) => token.replace(/^#+/, ''))
+    );
+    if (trailingKeywords.length === 0) {
+      return { body: normalized, keywords: [] };
+    }
+
+    return {
+      body: normalized.slice(0, match.index).trimEnd(),
+      keywords: trailingKeywords,
+    };
+  }
+
+  function sanitizeKeywords(rawKeywords) {
+    const result = [];
+    const seen = new Set();
+    const items = Array.isArray(rawKeywords) ? rawKeywords : [];
+
+    for (const rawKeyword of items) {
+      const cleaned = String(rawKeyword ?? '')
+        .trim()
+        .replace(/^#+/, '')
+        .replace(/\s+/g, '')
+        .replace(/[^A-Za-z0-9_-]/g, '')
+        .slice(0, 60);
+      if (!cleaned) continue;
+
+      const dedupeKey = cleaned.toLowerCase();
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      result.push(cleaned);
+    }
+    return result;
+  }
+
+  function parseKeywordsInput(value) {
+    const tokens = String(value ?? '')
+      .replace(/\r\n?/g, '\n')
+      .split(/[,\s]+/g)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    return sanitizeKeywords(tokens);
+  }
+
+  function formatKeywordsForInput(keywords) {
+    return sanitizeKeywords(keywords).join(', ');
+  }
+
+  function formatHashtagSuffix(keywords) {
+    const normalized = sanitizeKeywords(keywords);
+    if (normalized.length === 0) return '';
+    return normalized.map((keyword) => `#${keyword}`).join(' ');
+  }
+
+  function composeDescriptionWithHashtags(descriptionBody, keywords) {
+    const body = String(descriptionBody ?? '').trimEnd();
+    const hashtagSuffix = formatHashtagSuffix(keywords);
+    if (!hashtagSuffix) return body;
+    if (!body) return hashtagSuffix;
+    return `${body}\n\n${hashtagSuffix}`;
+  }
+
+  function areKeywordListsEqual(a, b) {
+    const left = sanitizeKeywords(a);
+    const right = sanitizeKeywords(b);
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+      if (left[i].toLowerCase() !== right[i].toLowerCase()) return false;
+    }
+    return true;
+  }
+
+  function renderTagChips(keywords, options = {}) {
+    const normalized = sanitizeKeywords(keywords);
+    if (normalized.length === 0) {
+      return '<span class="tag-editor__empty">No tags yet</span>';
+    }
+    const scope = options.scope || 'video';
+    const indexAttr = typeof options.index === 'number'
+      ? ` data-index="${options.index}"`
+      : '';
+    return normalized.map((tag) => (
+      `<span class="tag-chip">` +
+        `<span class="tag-chip__label">#${escapeHtml(tag)}</span>` +
+        `<button type="button" class="tag-chip__remove" data-scope="${escapeAttr(scope)}"${indexAttr} data-tag="${escapeAttr(tag)}" aria-label="Remove tag ${escapeAttr(tag)}">×</button>` +
+      `</span>`
+    )).join('');
+  }
+
+  function getVideoTagRecommendation(keywords) {
+    const count = sanitizeKeywords(keywords).length;
+    if (count < 3) return `Warning: ${count} tag(s). YouTube commonly performs better with 3-5 tags.`;
+    if (count > 5) return `Warning: ${count} tag(s). Keep around 3-5 tags to stay focused.`;
+    return '';
+  }
+
+  function isFuturePublishVideo(video) {
+    if (!video) return false;
+    return Boolean(getScheduledFutureDate(video));
+  }
+
+  function isManualSortRequiredError(error) {
+    return error?.result?.error?.errors?.some((entry) => entry?.reason === 'manualSortRequired') === true;
+  }
+
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str == null ? '' : String(str);
@@ -1653,6 +2236,59 @@ const App = (() => {
     const dt = new Date(publishedAt || '');
     if (Number.isNaN(dt.getTime())) return 'Upload date unavailable';
     return `Uploaded ${dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+  }
+
+  function formatVideoDate(video) {
+    // YouTube behavior:
+    // - status.publishAt in the future => scheduled; snippet.publishedAt is upload time.
+    // - status.publishAt missing/past => already published; snippet.publishedAt is publish time.
+    const scheduledFutureAt = getScheduledFutureDate(video);
+    if (scheduledFutureAt) {
+      return `Scheduled ${formatDateTime(scheduledFutureAt)}`;
+    }
+    return formatPublishedDate(video?.publishedAt);
+  }
+
+  function getScheduledFutureDate(video) {
+    if (!video) return '';
+    const now = Date.now();
+    const publishAt = String(video.scheduledPublishAt || '');
+    const publishTs = Date.parse(publishAt);
+    if (Number.isNaN(publishTs) || publishTs <= now) return '';
+    return publishAt;
+  }
+
+  function normalizePrivacyStatus(value) {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized === 'public' || normalized === 'private' || normalized === 'unlisted') {
+      return normalized;
+    }
+    return 'unknown';
+  }
+
+  function formatPublishedDate(publishedAt) {
+    const dt = new Date(publishedAt || '');
+    if (Number.isNaN(dt.getTime())) return 'Published date unavailable';
+    return `Published ${dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+  }
+
+  function formatDateTime(isoDate) {
+    const dt = new Date(isoDate || '');
+    if (Number.isNaN(dt.getTime())) return 'Unknown date';
+    return dt.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function formatPrimaryVideoDate(video) {
+    if (isFuturePublishVideo(video)) {
+      return formatUploadDate(video?.publishedAt);
+    }
+    return formatPublishedDate(video?.publishedAt);
   }
 
   function getModifiedTooltip(originalValue) {

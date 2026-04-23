@@ -82,3 +82,7 @@ Open the app and click the settings button (`⚙️`) to configure:
 
 - The app currently focuses on title/description batch operations.
 - Quota shown in the UI is an estimate tracked in-session.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

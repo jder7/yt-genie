@@ -601,6 +601,16 @@ body {
   border-left: 3px solid var(--iris-pink);
 }
 
+.video-item--public {
+  border-color: rgba(255, 215, 64, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 215, 64, 0.14);
+}
+
+.video-item--future,
+.video-item--private {
+  opacity: 0.7;
+}
+
 .video-item__header {
   display: flex;
   align-items: flex-start;
@@ -679,6 +689,20 @@ body {
 .video-item__upload-date {
   font-size: 0.75rem;
   color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.video-item__date-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -733,6 +757,51 @@ body {
 .video-item__status--error {
   background: rgba(255,45,123,0.12);
   color: var(--iris-pink);
+}
+
+.video-item__future-chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #c8fbff;
+  border: 1px solid rgba(24,255,255,0.4);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  background: linear-gradient(160deg, rgba(24,255,255,0.15), rgba(124,77,255,0.2));
+  white-space: nowrap;
+}
+
+.video-item__privacy-chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.video-item__privacy-chip--public {
+  color: #7dffbe;
+  border-color: rgba(105, 240, 174, 0.45);
+  background: rgba(105, 240, 174, 0.12);
+}
+
+.video-item__privacy-chip--unlisted {
+  color: #ffe28f;
+  border-color: rgba(255, 215, 64, 0.45);
+  background: rgba(255, 215, 64, 0.12);
+}
+
+.video-item__privacy-chip--private {
+  color: #ffb3ce;
+  border-color: rgba(255, 45, 123, 0.45);
+  background: rgba(255, 45, 123, 0.12);
+}
+
+.video-item__privacy-chip--unknown {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .video-item__reset-chip {
@@ -814,6 +883,122 @@ body {
 .video-item__field textarea.modified {
   border-color: var(--iris-magenta);
   background: rgba(224,64,251,0.04);
+}
+
+.keywords-preview {
+  margin-top: calc(var(--space-xs) + 2px);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-height: 1.1rem;
+}
+
+.keywords-preview--active {
+  color: var(--iris-cyan);
+}
+
+.tag-editor {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+  padding: 10px 12px;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+
+.tag-editor:focus-within {
+  border-color: var(--iris-cyan);
+  box-shadow: 0 0 0 3px rgba(24,255,255,0.14);
+  transform: translateY(-1px);
+}
+
+.tag-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.tag-editor__empty {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(160deg, rgba(24,255,255,0.2), rgba(124,77,255,0.16));
+  border: 1px solid rgba(24,255,255,0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.1;
+}
+
+.tag-chip__label {
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tag-chip__remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transition: color var(--duration-fast), background var(--duration-fast);
+}
+
+.tag-chip__remove:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.16);
+}
+
+.tag-editor__input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.86rem;
+  padding: 2px 0 0;
+}
+
+.tag-editor__input:focus {
+  outline: none;
+}
+
+.tag-editor__input.modified {
+  color: #ffd166;
+}
+
+.tag-editor--modified {
+  border-color: var(--iris-magenta);
+  box-shadow: 0 0 0 2px rgba(224,64,251,0.11);
+}
+
+.video-item__field .tag-editor__input.modified {
+  border: 0;
+  background: transparent;
+}
+
+.tag-editor__recommendation {
+  margin-top: 5px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tag-editor__recommendation--warn {
+  color: #ff9f43;
+  font-weight: 600;
 }
 
 /* --- Quota Bar --- */
