@@ -1419,6 +1419,116 @@ body.dragging-reorder {
   50% { opacity: 1; }
 }
 
+/* --- Operation Summary --- */
+.operation-summary {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--iris-blue);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
+  box-shadow: var(--shadow-card);
+}
+
+.operation-summary--success {
+  border-left-color: var(--iris-green);
+}
+
+.operation-summary--error {
+  border-left-color: var(--iris-pink);
+}
+
+.operation-summary--info {
+  border-left-color: var(--iris-blue);
+}
+
+.operation-summary__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.operation-summary__title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.operation-summary__message {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.operation-summary__status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  color: var(--iris-blue);
+  background: rgba(68,138,255,0.12);
+}
+
+.operation-summary--success .operation-summary__status {
+  color: var(--iris-green);
+  background: rgba(105,240,174,0.12);
+}
+
+.operation-summary--error .operation-summary__status {
+  color: var(--iris-pink);
+  background: rgba(255,45,123,0.12);
+}
+
+.operation-summary__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-sm);
+}
+
+.operation-summary__metric {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.operation-summary__metric-value {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.operation-summary__metric-label {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+
+.operation-summary__details {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  list-style: none;
+  margin-top: var(--space-md);
+}
+
+.operation-summary__details:empty {
+  display: none;
+}
+
+.operation-summary__details li + li {
+  margin-top: var(--space-xs);
+}
+
 /* --- User Info --- */
 .user-info {
   display: flex;

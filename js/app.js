@@ -175,6 +175,7 @@ const App = (() => {
       persistCurrentPlaylistDraft();
       activeAccountId = 'anonymous';
       restoreQuotaUsageForActiveAccount();
+      hideOperationSummary();
 
       // Show hero, hide dashboard
       $('#hero-section').classList.remove('hidden');
@@ -1509,9 +1510,9 @@ const App = (() => {
       return;
     }
 
-    const quota = API.getQuota();
-    if (quota.used + costEstimate > quota.limit) {
-      toast(`Estimated cost (${costEstimate} units) would exceed quota limit. Only ${quota.limit - quota.used} units remaining.`, 'error');
+    const startingQuota = API.getQuota();
+    if (startingQuota.used + costEstimate > startingQuota.limit) {
+      toast(`Estimated cost (${costEstimate} units) would exceed quota limit. Only ${startingQuota.limit - startingQuota.used} units remaining.`, 'error');
       return;
     }
 
@@ -1532,6 +1533,7 @@ const App = (() => {
     }
 
     batchRunning = true;
+    hideOperationSummary();
     showBatchProgress(0, opCount);
     $('#btn-batch-update').disabled = true;
     $('#btn-cancel-batch').classList.remove('hidden');
@@ -1539,6 +1541,8 @@ const App = (() => {
     let completed = 0;
     let errors = 0;
     let reorderBlockedBySortType = false;
+    let cancelled = false;
+    const failedOperations = [];
 
     if (playlistNeedsUpdate) {
       try {
@@ -1562,6 +1566,13 @@ const App = (() => {
         completed++;
       } catch (e) {
         currentPlaylistEdit.status = 'error';
+        currentPlaylistEdit.errorMessage = getOperationErrorMessage(e);
+        failedOperations.push({
+          type: 'Playlist metadata',
+          target: currentPlaylistEdit.newTitle || currentPlaylistEdit.title || currentPlaylistEdit.playlistId,
+          id: currentPlaylistEdit.playlistId,
+          message: currentPlaylistEdit.errorMessage,
+        });
         errors++;
         console.error(`Failed to update playlist ${currentPlaylistEdit.playlistId}:`, e);
       }
@@ -1572,6 +1583,7 @@ const App = (() => {
 
     for (const video of videosToUpdate) {
       if (!batchRunning) {
+        cancelled = true;
         toast('Batch update cancelled.', 'info');
         break;
       }
@@ -1587,7 +1599,13 @@ const App = (() => {
         completed++;
       } catch (e) {
         video.status = 'error';
-        video.errorMessage = e.message;
+        video.errorMessage = getOperationErrorMessage(e);
+        failedOperations.push({
+          type: 'Video metadata',
+          target: video.newTitle || video.title || video.videoId,
+          id: video.videoId,
+          message: video.errorMessage,
+        });
         errors++;
         console.error(`Failed to update ${video.videoId}:`, e);
       }
@@ -1602,6 +1620,7 @@ const App = (() => {
     const persistedOrderIds = [...reorderPlan.initialOrderIds];
     for (const { video, targetIndex } of reorderOperations) {
       if (!batchRunning) {
+        cancelled = true;
         toast('Batch update cancelled.', 'info');
         break;
       }
@@ -1628,8 +1647,14 @@ const App = (() => {
           reorderBlockedBySortType = true;
           video.errorMessage = 'Reorder blocked: playlist sort type must be Manual on YouTube.';
         } else {
-          video.errorMessage = e.message;
+          video.errorMessage = getOperationErrorMessage(e);
         }
+        failedOperations.push({
+          type: 'Playlist reorder',
+          target: video.newTitle || video.title || video.videoId,
+          id: video.playlistItemId || video.videoId,
+          message: video.errorMessage,
+        });
         errors++;
         console.error(`Failed to reorder playlistItem ${video.playlistItemId}:`, e);
         if (reorderBlockedBySortType) {
@@ -1651,6 +1676,47 @@ const App = (() => {
     updateStats();
     persistCurrentPlaylistDraft();
 
+    const endingQuota = API.getQuota();
+    const quotaUsed = Math.max(0, endingQuota.used - startingQuota.used);
+    const pending = Math.max(0, opCount - completed - errors);
+    const reportDetails = [
+      `Estimated quota cost: ${costEstimate} units; actual tracked cost: ${quotaUsed} units.`,
+      `Operation mix: ${videosToUpdate.length} video metadata, ${playlistNeedsUpdate ? 1 : 0} playlist metadata, ${reorderOperations.length} reorder.`,
+    ];
+    if (reorderSkipped > 0) {
+      reportDetails.push(`${reorderSkipped} reorder operation(s) were skipped because playlist item IDs were missing.`);
+    }
+    if (reorderBlockedBySortType) {
+      reportDetails.push('Reorder was blocked because the playlist sort type must be Manual in YouTube.');
+    }
+    if (cancelled && pending > 0) {
+      reportDetails.push(`${pending} operation(s) were left pending after cancellation.`);
+    } else if (pending > 0) {
+      reportDetails.push(`${pending} operation(s) were not attempted after the batch stopped.`);
+    }
+    if (failedOperations.length > 0) {
+      reportDetails.push('Failed operation details:');
+      failedOperations.forEach((failure) => {
+        const idPart = failure.id ? ` (${failure.id})` : '';
+        reportDetails.push(`${failure.type}: ${failure.target}${idPart} - ${failure.message}`);
+      });
+    }
+
+    showOperationSummary({
+      type: (errors > 0 || reorderSkipped > 0 || reorderBlockedBySortType) ? 'error' : (cancelled ? 'info' : 'success'),
+      status: (errors > 0 || reorderSkipped > 0 || reorderBlockedBySortType) ? 'Needs Review' : (cancelled ? 'Cancelled' : 'Complete'),
+      message: cancelled
+        ? `Batch update stopped after ${completed + errors} of ${opCount} operation(s).`
+        : `Batch update finished with ${completed} successful operation(s) out of ${opCount}.`,
+      metrics: [
+        { label: 'Successful', value: completed },
+        { label: 'Failed', value: errors },
+        { label: 'Skipped', value: reorderSkipped },
+        { label: 'Quota Used', value: quotaUsed },
+      ],
+      details: reportDetails,
+    });
+
     if (errors > 0 || reorderSkipped > 0) {
       if (reorderBlockedBySortType) {
         toast('Reorder failed: playlist sort type must be Manual in YouTube to allow position updates.', 'error');
@@ -1658,6 +1724,8 @@ const App = (() => {
       }
       const skippedMsg = reorderSkipped > 0 ? `, ${reorderSkipped} reorder skipped` : '';
       toast(`Batch complete: ${completed} updated, ${errors} failed${skippedMsg}.`, 'error');
+    } else if (cancelled) {
+      toast(`Batch update cancelled: ${completed} updated, ${errors} failed, ${pending} pending.`, 'info');
     } else {
       toast(`All ${completed} item(s) updated successfully!`, 'success');
     }
@@ -1668,6 +1736,43 @@ const App = (() => {
   }
 
   // --- UI Updates ---
+  function showOperationSummary({ type = 'info', status = 'Ready', message = '', metrics = [], details = [] } = {}) {
+    const summary = $('#operation-summary');
+    if (!summary) return;
+
+    summary.classList.remove('hidden', 'operation-summary--success', 'operation-summary--error', 'operation-summary--info');
+    summary.classList.add(`operation-summary--${type}`);
+    $('#operation-summary-status').textContent = status;
+    $('#operation-summary-message').textContent = message;
+
+    $('#operation-summary-metrics').innerHTML = metrics.map((metric) => `
+      <div class="operation-summary__metric">
+        <div class="operation-summary__metric-value">${escapeHtml(metric.value)}</div>
+        <div class="operation-summary__metric-label">${escapeHtml(metric.label)}</div>
+      </div>
+    `).join('');
+
+    $('#operation-summary-details').innerHTML = details
+      .filter(Boolean)
+      .map((detail) => `<li>${escapeHtml(detail)}</li>`)
+      .join('');
+  }
+
+  function hideOperationSummary() {
+    const summary = $('#operation-summary');
+    if (!summary) return;
+    summary.classList.add('hidden');
+  }
+
+  function getOperationErrorMessage(error) {
+    const apiError = error?.result?.error || error?.error;
+    const firstDetail = apiError?.errors?.[0];
+    const reason = firstDetail?.reason || apiError?.status || '';
+    const message = firstDetail?.message || apiError?.message || error?.message || String(error || 'Unknown error');
+
+    return reason ? `${message} [${reason}]` : message;
+  }
+
   function updateStats() {
     const total = editedVideos.length;
     const hasAnyChanges = hasAnyCurrentChanges();
