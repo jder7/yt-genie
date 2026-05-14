@@ -541,6 +541,22 @@ body {
   pointer-events: none;
 }
 
+.config-quota-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.config-quota-row .btn--icon {
+  min-width: 42px;
+  height: 42px;
+  padding: 0;
+  justify-content: center;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
 /* --- Action Bar --- */
 .action-bar {
   display: flex;
@@ -548,6 +564,10 @@ body {
   align-items: center;
   flex-wrap: wrap;
   padding: var(--space-md) 0;
+}
+
+.action-bar--compact {
+  padding: 0;
 }
 
 .action-bar__group {

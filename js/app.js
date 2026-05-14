@@ -38,6 +38,7 @@ const App = (() => {
       API.setQuotaLimit(parseInt(savedQuota, 10));
       $('#config-quota-limit').value = savedQuota;
     }
+    setConfigQuotaUsedInput(API.getQuota().used);
 
     // Wire up UI events
     bindEvents();
@@ -68,6 +69,7 @@ const App = (() => {
     $('#btn-config').addEventListener('click', openConfigModal);
     $('#btn-config-save').addEventListener('click', saveConfig);
     $('#btn-config-cancel').addEventListener('click', closeConfigModal);
+    $('#btn-reset-quota').addEventListener('click', handleResetQuota);
 
     // Auth
     $('#btn-login').addEventListener('click', handleLogin);
@@ -78,9 +80,6 @@ const App = (() => {
     $('#playlist-select').addEventListener('change', handlePlaylistChange);
     $('#playlist-title-input').addEventListener('input', handlePlaylistFieldEdit);
     $('#playlist-desc-input').addEventListener('input', handlePlaylistFieldEdit);
-    $('#playlist-keywords-input').addEventListener('input', handlePlaylistKeywordsInput);
-    $('#playlist-keywords-input').addEventListener('keydown', handlePlaylistKeywordsKeyDown);
-    $('#playlist-keywords-input').addEventListener('blur', handlePlaylistKeywordsBlur);
 
     // Actions
     $('#btn-export').addEventListener('click', handleExport);
@@ -195,6 +194,7 @@ const App = (() => {
 
   // --- Config Modal ---
   function openConfigModal() {
+    setConfigQuotaUsedInput(API.getQuota().used);
     $('#config-modal').classList.add('active');
   }
 
@@ -205,10 +205,22 @@ const App = (() => {
   function saveConfig() {
     const previousClientId = localStorage.getItem('yt_genie_client_id');
     const clientId = $('#config-client-id').value.trim();
-    const quotaLimit = parseInt($('#config-quota-limit').value, 10);
+    const beforeQuota = API.getQuota();
+    const rawQuotaLimit = parseInt($('#config-quota-limit').value, 10);
+    const rawQuotaUsed = parseInt($('#config-quota-used').value, 10);
 
     if (!clientId) {
       toast('Client ID is required.', 'error');
+      return;
+    }
+    if (!Number.isFinite(rawQuotaLimit) || rawQuotaLimit <= 0) {
+      toast('Daily quota limit must be greater than zero.', 'error');
+      $('#config-quota-limit').value = String(beforeQuota.limit);
+      return;
+    }
+    if (!Number.isFinite(rawQuotaUsed) || rawQuotaUsed < 0) {
+      toast('Current day quota used must be zero or greater.', 'error');
+      setConfigQuotaUsedInput(beforeQuota.used);
       return;
     }
 
@@ -218,13 +230,41 @@ const App = (() => {
       authInitialized = false;
       authClientId = null;
     }
-    if (quotaLimit > 0) {
-      API.setQuotaLimit(quotaLimit);
-      localStorage.setItem('yt_genie_quota_limit', quotaLimit);
-    }
 
+    const quotaLimit = Math.trunc(rawQuotaLimit);
+    const quotaUsed = Math.trunc(rawQuotaUsed);
+    API.setQuotaLimit(quotaLimit);
+    API.setQuotaUsed(quotaUsed);
+    localStorage.setItem('yt_genie_quota_limit', quotaLimit);
+    Persistence.writeQuotaUsed(activeAccountId, quotaUsed);
+    updateQuotaUI(quotaUsed, quotaLimit);
+    setConfigQuotaUsedInput(quotaUsed);
     closeConfigModal();
     toast('Configuration saved!', 'success');
+  }
+
+  function handleResetQuota() {
+    const before = API.getQuota();
+    const resetDate = formatLocalQuotaDate(new Date());
+    API.resetQuota();
+    Persistence.writeQuotaUsed(activeAccountId, 0);
+    setConfigQuotaUsedInput(0);
+    showOperationSummary({
+      type: 'success',
+      status: 'Complete',
+      message: `Daily quota usage reset for ${resetDate}.`,
+      metrics: [
+        { label: 'Previous Usage', value: before.used },
+        { label: 'Current Usage', value: 0 },
+        { label: 'Daily Limit', value: before.limit },
+      ],
+      details: [
+        `Reset quota usage for account scope "${activeAccountId}".`,
+        `Usage changed from ${before.used} / ${before.limit} units to 0 / ${before.limit} units.`,
+        'This only resets the app-local estimate; it does not reset Google Cloud quota.',
+      ],
+    });
+    toast(`Quota reset for ${resetDate}: ${before.used} / ${before.limit} units -> 0 / ${before.limit} units.`, 'success');
   }
 
   // --- Playlists ---
@@ -321,8 +361,6 @@ const App = (() => {
         playlistId: selectedPlaylist.id,
         title: selectedPlaylist.title || '',
         description: playlistDescriptionState.body,
-        originalKeywords: [...playlistDescriptionState.keywords],
-        keywords: [...playlistDescriptionState.keywords],
         thumbnail: selectedPlaylist.thumbnail || '',
         newTitle: selectedPlaylist.title || '',
         newDescription: playlistDescriptionState.body,
@@ -340,9 +378,11 @@ const App = (() => {
           toast(`Loaded ${videos.length} video(s).`, 'info');
         }
       }
+      return true;
     } catch (e) {
       hideLoading();
       toast('Failed to load videos: ' + e.message, 'error');
+      return false;
     }
   }
 
@@ -371,81 +411,23 @@ const App = (() => {
 
     const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
     const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-    currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
+    currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
     updatePlaylistStatusBadge();
-    updatePlaylistKeywordsPreview();
     updateStats();
     persistCurrentPlaylistDraft();
-  }
-
-  function handlePlaylistKeywordsInput(e) {
-    if (!currentPlaylistEdit) return;
-    if (!/[,\n]/.test(e.target.value)) return;
-    commitPlaylistKeywordsFromInput(e.target);
-  }
-
-  function handlePlaylistKeywordsKeyDown(e) {
-    if (!currentPlaylistEdit) return;
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      commitPlaylistKeywordsFromInput(e.currentTarget);
-      return;
-    }
-    if (e.key === 'Backspace' && !e.currentTarget.value.trim() && currentPlaylistEdit.keywords.length > 0) {
-      currentPlaylistEdit.keywords = currentPlaylistEdit.keywords.slice(0, -1);
-      updatePlaylistKeywordsStateAfterEdit();
-      renderPlaylistEditor();
-      persistCurrentPlaylistDraft();
-    }
-  }
-
-  function handlePlaylistKeywordsBlur(e) {
-    if (!currentPlaylistEdit) return;
-    commitPlaylistKeywordsFromInput(e.currentTarget);
-  }
-
-  function commitPlaylistKeywordsFromInput(inputEl) {
-    if (!currentPlaylistEdit || !inputEl) return;
-    const additions = parseKeywordsInput(inputEl.value);
-    inputEl.value = '';
-    if (additions.length === 0) return;
-
-    currentPlaylistEdit.keywords = sanitizeKeywords([...(currentPlaylistEdit.keywords || []), ...additions]);
-    updatePlaylistKeywordsStateAfterEdit();
-    renderPlaylistEditor();
-    persistCurrentPlaylistDraft();
-  }
-
-  function updatePlaylistKeywordsStateAfterEdit() {
-    if (!currentPlaylistEdit) return;
-    const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
-    const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-    currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
-    updatePlaylistStatusBadge();
-    updatePlaylistKeywordsPreview();
-    updateStats();
   }
 
   function renderPlaylistEditor() {
     const editor = $('#playlist-editor');
     const titleInput = $('#playlist-title-input');
     const descInput = $('#playlist-desc-input');
-    const keywordsInput = $('#playlist-keywords-input');
-    const keywordsPreview = $('#playlist-keywords-preview');
     const thumbnailEl = $('#playlist-thumb');
-    if (!editor || !titleInput || !descInput || !keywordsInput || !keywordsPreview || !thumbnailEl) return;
+    if (!editor || !titleInput || !descInput || !thumbnailEl) return;
 
     if (!currentPlaylistEdit) {
       editor.classList.add('hidden');
       titleInput.value = '';
       descInput.value = '';
-      keywordsInput.value = '';
-      keywordsInput.removeAttribute('title');
-      keywordsInput.closest('.tag-editor')?.classList.remove('tag-editor--modified');
-      keywordsPreview.textContent = 'No tags added';
-      keywordsPreview.classList.remove('keywords-preview--active');
       thumbnailEl.src = '';
       thumbnailEl.classList.add('hidden');
       return;
@@ -462,13 +444,6 @@ const App = (() => {
     descInput.title = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description
       ? getModifiedTooltip(currentPlaylistEdit.description)
       : '';
-    const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-    keywordsInput.value = '';
-    keywordsInput.closest('.tag-editor')?.classList.toggle('tag-editor--modified', keywordsChanged);
-    keywordsInput.title = keywordsChanged
-      ? getModifiedTooltip(formatTagList(currentPlaylistEdit.originalKeywords))
-      : '';
-    updatePlaylistKeywordsPreview();
     if (currentPlaylistEdit.thumbnail) {
       thumbnailEl.src = currentPlaylistEdit.thumbnail;
       thumbnailEl.alt = currentPlaylistEdit.newTitle
@@ -480,23 +455,6 @@ const App = (() => {
       thumbnailEl.classList.add('hidden');
     }
     updatePlaylistStatusBadge();
-  }
-
-  function updatePlaylistKeywordsPreview() {
-    const preview = $('#playlist-keywords-preview');
-    if (!preview || !currentPlaylistEdit) return;
-    const tagsText = formatTagList(currentPlaylistEdit.keywords);
-    const chips = $('#playlist-keywords-chips');
-    if (chips) {
-      chips.innerHTML = renderTagChips(currentPlaylistEdit.keywords, { scope: 'playlist' });
-    }
-    if (tagsText) {
-      preview.textContent = `Tags: ${tagsText}`;
-      preview.classList.add('keywords-preview--active');
-    } else {
-      preview.textContent = 'No tags added';
-      preview.classList.remove('keywords-preview--active');
-    }
   }
 
   function updatePlaylistStatusBadge() {
@@ -1207,17 +1165,6 @@ const App = (() => {
       return;
     }
 
-    if (scope === 'playlist' && currentPlaylistEdit) {
-      currentPlaylistEdit.keywords = sanitizeKeywords(currentPlaylistEdit.keywords)
-        .filter((tag) => tag.toLowerCase() !== normalizedTag);
-      const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
-      const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-      const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-      currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
-      renderPlaylistEditor();
-      updateStats();
-      persistCurrentPlaylistDraft();
-    }
   }
 
   // --- Export ---
@@ -1267,7 +1214,32 @@ const App = (() => {
 
       // Map imported data onto current editedVideos, or create new set
       dragSourceIndex = null;
-      if (editedVideos.length > 0 && data.playlistId === currentPlaylistId) {
+      const importedPlaylistId = String(data.playlistId || '').trim();
+      if (importedPlaylistId && playlists.length > 0) {
+        const importedPlaylist = playlists.find((playlist) => playlist.id === importedPlaylistId);
+        if (!importedPlaylist) {
+          toast('Import failed: playlist from JSON was not found in this YouTube account.', 'error');
+          return;
+        }
+
+        if (currentPlaylistId !== importedPlaylistId) {
+          persistCurrentPlaylistDraft();
+          currentPlaylistId = importedPlaylistId;
+          Persistence.writeLastWorkingPlaylist(activeAccountId, importedPlaylistId);
+          const select = $('#playlist-select');
+          if (select) select.value = importedPlaylistId;
+          const loaded = await loadPlaylistForEditing(importedPlaylistId, {
+            restoreDraft: false,
+            showLoadToast: false,
+          });
+          if (!loaded) {
+            toast('Import failed: could not load the playlist from YouTube.', 'error');
+            return;
+          }
+        }
+      }
+
+      if (editedVideos.length > 0 && importedPlaylistId && importedPlaylistId === currentPlaylistId) {
         // Match by playlistItemId/videoId and apply changes
         let matchCount = 0;
         const sourceVideos = Array.isArray(data.videos) ? data.videos : [];
@@ -1303,22 +1275,18 @@ const App = (() => {
           if (typeof data.playlistTitle === 'string') currentPlaylistEdit.newTitle = data.playlistTitle;
           const hasPlaylistDescriptionData =
             typeof data.playlistDescription === 'string'
-            || typeof data.playlistDescriptionBody === 'string'
-            || Array.isArray(data.playlistKeywords);
+            || typeof data.playlistDescriptionBody === 'string';
           if (hasPlaylistDescriptionData) {
             const playlistDescriptionState = resolveEditableDescriptionState({
               fullDescription: data.playlistDescription,
               body: data.playlistDescriptionBody,
-              keywords: data.playlistKeywords,
             });
             currentPlaylistEdit.newDescription = playlistDescriptionState.body;
-            currentPlaylistEdit.keywords = [...playlistDescriptionState.keywords];
           }
           if (typeof data.playlistThumbnail === 'string') currentPlaylistEdit.thumbnail = data.playlistThumbnail;
           const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
           const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-          const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-          currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
+          currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
         }
         syncOrderFlags();
         renderPlaylistEditor();
@@ -1386,20 +1354,16 @@ const App = (() => {
         const importedPlaylistDescriptionState = resolveEditableDescriptionState({
           fullDescription: data.originalPlaylistDescription || data.playlistDescription || '',
           body: data.originalPlaylistDescriptionBody,
-          keywords: data.originalPlaylistKeywords,
         });
         const importedCurrentPlaylistDescriptionState = resolveEditableDescriptionState({
           fullDescription: data.playlistDescription || '',
           body: data.playlistDescriptionBody,
-          keywords: data.playlistKeywords,
         });
         currentPlaylistId = data.playlistId || null;
         currentPlaylistEdit = {
           playlistId: data.playlistId || null,
           title: data.originalPlaylistTitle || data.playlistTitle || '',
           description: importedPlaylistDescriptionState.body,
-          originalKeywords: [...importedPlaylistDescriptionState.keywords],
-          keywords: [...importedCurrentPlaylistDescriptionState.keywords],
           thumbnail: data.playlistThumbnail || '',
           newTitle: data.playlistTitle || '',
           newDescription: importedCurrentPlaylistDescriptionState.body,
@@ -1409,7 +1373,6 @@ const App = (() => {
           (
             currentPlaylistEdit.newTitle !== currentPlaylistEdit.title
             || currentPlaylistEdit.newDescription !== currentPlaylistEdit.description
-            || !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords)
           )
             ? 'modified'
             : 'unchanged';
@@ -1431,8 +1394,7 @@ const App = (() => {
   }
 
   function hasAnyCurrentChanges() {
-    const playlistChanged = !!(currentPlaylistEdit && currentPlaylistEdit.status === 'modified' && currentPlaylistEdit.playlistId);
-    return hasVideoChanges() || playlistChanged;
+    return hasVideoChanges() || hasPlaylistSnippetChanges();
   }
 
   function resetVideoStateToOriginal() {
@@ -1472,7 +1434,6 @@ const App = (() => {
     if (currentPlaylistEdit) {
       currentPlaylistEdit.newTitle = currentPlaylistEdit.title;
       currentPlaylistEdit.newDescription = currentPlaylistEdit.description;
-      currentPlaylistEdit.keywords = [...(currentPlaylistEdit.originalKeywords || [])];
       currentPlaylistEdit.status = 'unchanged';
     }
 
@@ -1554,8 +1515,7 @@ const App = (() => {
         );
         currentPlaylistEdit.title = currentPlaylistEdit.newTitle;
         currentPlaylistEdit.description = currentPlaylistEdit.newDescription;
-        const playlistKeywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-        currentPlaylistEdit.status = playlistKeywordsChanged ? 'modified' : 'synced';
+        currentPlaylistEdit.status = 'synced';
         const existing = playlists.find((p) => p.id === currentPlaylistEdit.playlistId);
         if (existing) {
           existing.title = currentPlaylistEdit.newTitle;
@@ -1777,7 +1737,7 @@ const App = (() => {
     const total = editedVideos.length;
     const hasAnyChanges = hasAnyCurrentChanges();
     const modifiedVideos = editedVideos.filter((v) => v.status === 'modified').length;
-    const playlistModified = (currentPlaylistEdit?.status === 'modified' && currentPlaylistEdit?.playlistId) ? 1 : 0;
+    const playlistModified = hasPlaylistSnippetChanges() ? 1 : 0;
     const modified = modifiedVideos + playlistModified;
     const synced = editedVideos.filter((v) => v.status === 'synced').length;
     const syncPlan = computeSyncPlan();
@@ -1817,7 +1777,15 @@ const App = (() => {
     const pct = Math.min((used / limit) * 100, 100);
     $('#quota-fill').style.width = pct + '%';
     $('#quota-value').textContent = `${used} / ${limit} units`;
+    setConfigQuotaUsedInput(used, { preserveFocusedEdit: true });
     updateBatchEstimateChip(computeSyncPlan());
+  }
+
+  function setConfigQuotaUsedInput(used, options = {}) {
+    const input = $('#config-quota-used');
+    if (!input) return;
+    if (options.preserveFocusedEdit && document.activeElement === input) return;
+    input.value = String(Math.max(0, Math.trunc(Number(used) || 0)));
   }
 
   function updateBatchEstimateChip(syncPlan) {
@@ -1920,12 +1888,10 @@ const App = (() => {
       playlistTitle: playlistName,
       playlistDescription: currentPlaylistEdit?.newDescription || '',
       playlistDescriptionBody: currentPlaylistEdit?.newDescription || '',
-      playlistKeywords: [...(currentPlaylistEdit?.keywords || [])],
       playlistThumbnail: currentPlaylistEdit?.thumbnail || '',
       originalPlaylistTitle: currentPlaylistEdit?.title || '',
       originalPlaylistDescription: currentPlaylistEdit?.description || '',
       originalPlaylistDescriptionBody: currentPlaylistEdit?.description || '',
-      originalPlaylistKeywords: [...(currentPlaylistEdit?.originalKeywords || [])],
       exportedAt: new Date().toISOString(),
       videos: editedVideos.map((video, index) => ({
         playlistItemId: video.playlistItemId || '',
@@ -1987,23 +1953,19 @@ const App = (() => {
       if (
         typeof draft.playlistDescription === 'string'
         || typeof draft.playlistDescriptionBody === 'string'
-        || Array.isArray(draft.playlistKeywords)
       ) {
         const playlistDescriptionState = resolveEditableDescriptionState({
           fullDescription: draft.playlistDescription,
           body: draft.playlistDescriptionBody,
-          keywords: draft.playlistKeywords,
         });
         currentPlaylistEdit.newDescription = playlistDescriptionState.body;
-        currentPlaylistEdit.keywords = [...playlistDescriptionState.keywords];
       }
       if (typeof draft.playlistThumbnail === 'string') {
         currentPlaylistEdit.thumbnail = draft.playlistThumbnail;
       }
       const titleChanged = currentPlaylistEdit.newTitle !== currentPlaylistEdit.title;
       const descChanged = currentPlaylistEdit.newDescription !== currentPlaylistEdit.description;
-      const keywordsChanged = !areKeywordListsEqual(currentPlaylistEdit.keywords, currentPlaylistEdit.originalKeywords);
-      currentPlaylistEdit.status = (titleChanged || descChanged || keywordsChanged) ? 'modified' : 'unchanged';
+      currentPlaylistEdit.status = (titleChanged || descChanged) ? 'modified' : 'unchanged';
     }
 
     applyImportedOrder(draft.videos);
@@ -2354,6 +2316,14 @@ const App = (() => {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+    });
+  }
+
+  function formatLocalQuotaDate(date) {
+    return date.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
   }
 

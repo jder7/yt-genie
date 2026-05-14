@@ -31,6 +31,36 @@ const Persistence = (() => {
     return `${PLAYLIST_DRAFT_STORAGE_PREFIX}${getScope(accountId)}_${playlistId}`;
   }
 
+  function getCurrentQuotaDay() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function normalizeQuotaUsed(used) {
+    const parsed = Number(used);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
+  }
+
+  function parseQuotaRecord(raw) {
+    if (raw == null) return null;
+
+    const legacy = parseInt(raw, 10);
+    if (String(legacy) === String(raw).trim() && Number.isFinite(legacy) && legacy >= 0) {
+      return 0;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.date !== getCurrentQuotaDay()) return 0;
+      return normalizeQuotaUsed(parsed.used);
+    } catch {
+      return 0;
+    }
+  }
+
   function resolveAccountId(profile) {
     return normalizeAccountId(profile?.id || profile?.email || profile?.name || 'anonymous');
   }
@@ -42,14 +72,14 @@ const Persistence = (() => {
     if (raw == null && normalized === 'anonymous') {
       raw = localStorage.getItem(LEGACY_QUOTA_USED_STORAGE_KEY);
     }
-    if (raw == null) return null;
-
-    const parsed = parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    return parseQuotaRecord(raw);
   }
 
   function writeQuotaUsed(accountId, used) {
-    localStorage.setItem(getQuotaUsedStorageKey(accountId), String(used));
+    localStorage.setItem(getQuotaUsedStorageKey(accountId), JSON.stringify({
+      date: getCurrentQuotaDay(),
+      used: normalizeQuotaUsed(used),
+    }));
   }
 
   function getDraftPlaylistIds(accountId) {
