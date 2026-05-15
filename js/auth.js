@@ -6,7 +6,9 @@
  */
 
 const Auth = (() => {
-  const SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+  const SCOPE = [
+    'https://www.googleapis.com/auth/youtube.force-ssl',
+  ].join(' ');
   const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest';
   const SESSION_STORAGE_KEY = 'yt_genie_auth_session';
   const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
@@ -106,15 +108,7 @@ const Auth = (() => {
     tokenExpiresAt = Date.now() + expiresInMs - TOKEN_EXPIRY_BUFFER_MS;
     gapi.client.setToken({ access_token: accessToken });
 
-    // Fetch user profile info
-    try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      userProfile = await res.json();
-    } catch (e) {
-      userProfile = { name: 'YouTube User' };
-    }
+    userProfile = {};
 
     saveSession();
     onAuthChange?.(true, userProfile);
@@ -153,7 +147,7 @@ const Auth = (() => {
 
     accessToken = restoredToken;
     tokenExpiresAt = restoredExpiresAt;
-    userProfile = parsed?.userProfile || { name: 'YouTube User' };
+    userProfile = parsed?.userProfile || {};
     gapi.client.setToken({ access_token: accessToken });
     onAuthChange?.(true, userProfile);
     return true;

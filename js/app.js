@@ -158,12 +158,10 @@ const App = (() => {
       $('#dashboard').classList.add('active');
 
       // Update user info
-      if (profile) {
-        $('#user-name').textContent = profile.name || 'YouTube User';
-        if (profile.picture) {
-          $('#user-avatar').src = profile.picture;
-          $('#user-avatar').classList.remove('hidden');
-        }
+      $('#user-name').textContent = getProfileDisplayName(profile);
+      if (profile?.picture) {
+        $('#user-avatar').src = profile.picture;
+        $('#user-avatar').classList.remove('hidden');
       }
       $('#btn-login').classList.add('hidden');
       $('#btn-logout').classList.remove('hidden');
@@ -190,6 +188,10 @@ const App = (() => {
       currentPlaylistEdit = null;
       renderPlaylistEditor();
     }
+  }
+
+  function getProfileDisplayName(profile) {
+    return profile?.name || profile?.email || profile?.id || 'Loading account…';
   }
 
   // --- Config Modal ---
@@ -272,6 +274,7 @@ const App = (() => {
     showLoading('Fetching playlists…');
     try {
       playlists = await API.getPlaylists();
+      updateSignedInLabelFromPlaylists();
       renderPlaylistSelector();
       updateStats();
       hideLoading();
@@ -285,6 +288,9 @@ const App = (() => {
       }
     } catch (e) {
       hideLoading();
+      if (isYouTubeSignupRequiredError(e)) {
+        $('#user-name').textContent = 'No YouTube channel';
+      }
       toast('Failed to load playlists: ' + e.message, 'error');
     }
   }
@@ -299,6 +305,13 @@ const App = (() => {
       const draftMarker = draftPlaylistIds.has(pl.id) ? ' • Draft' : '';
       opt.textContent = `${pl.title} (${pl.videoCount} videos)${draftMarker}`;
       select.appendChild(opt);
+    }
+  }
+
+  function updateSignedInLabelFromPlaylists() {
+    const channelTitle = playlists.find((playlist) => playlist.channelTitle)?.channelTitle;
+    if (channelTitle) {
+      $('#user-name').textContent = channelTitle;
     }
   }
 
@@ -2255,6 +2268,10 @@ const App = (() => {
 
   function isManualSortRequiredError(error) {
     return error?.result?.error?.errors?.some((entry) => entry?.reason === 'manualSortRequired') === true;
+  }
+
+  function isYouTubeSignupRequiredError(error) {
+    return error?.result?.error?.errors?.some((entry) => entry?.reason === 'youtubeSignupRequired') === true;
   }
 
   function escapeHtml(str) {

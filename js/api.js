@@ -62,6 +62,8 @@ const API = (() => {
           id: item.id,
           title: item.snippet.title,
           description: item.snippet.description,
+          channelId: item.snippet.channelId || '',
+          channelTitle: item.snippet.channelTitle || '',
           thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
           videoCount: item.contentDetails.itemCount,
         });
