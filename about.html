@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About YouTube Genie</title>
+  <meta name="description" content="Learn why YouTube Genie exists and how it helps creators manage YouTube metadata in bulk." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧞</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="geo-bg" aria-hidden="true">
+    <div class="geo-shape geo-shape--1"></div>
+    <div class="geo-shape geo-shape--2"></div>
+    <div class="geo-shape geo-shape--3"></div>
+    <div class="geo-shape geo-shape--4"></div>
+    <div class="geo-shape geo-shape--5"></div>
+    <div class="geo-triangle geo-triangle--1"></div>
+    <div class="geo-triangle geo-triangle--2"></div>
+    <div class="geo-diamond geo-diamond--1"></div>
+    <div class="geo-diamond geo-diamond--2"></div>
+  </div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <a class="app-logo app-logo--link" href="index.html" aria-label="YouTube Genie home">
+        <div class="app-logo__icon">🧞</div>
+        <span class="app-logo__text">YouTube Genie</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a class="site-nav__link" href="index.html">Home</a>
+        <a class="site-nav__link site-nav__link--active" href="about.html" aria-current="page">About</a>
+      </nav>
+    </header>
+
+    <main class="about-page">
+      <section class="about-hero" aria-labelledby="about-title">
+        <p class="about-kicker">Project Goal</p>
+        <h1 id="about-title" class="about-hero__title">Make YouTube metadata work manageable at playlist scale.</h1>
+        <p class="about-hero__lead">
+          YouTube Genie is a lightweight browser tool for creators and channel operators who need to review,
+          export, edit, and update many video titles and descriptions without stepping through YouTube Studio
+          one video at a time.
+        </p>
+      </section>
+
+      <section class="about-grid" aria-label="Project details">
+        <article class="about-panel">
+          <h2 class="about-panel__title">Why it exists</h2>
+          <p>
+            Playlist maintenance often becomes repetitive: fixing titles, cleaning descriptions, applying
+            consistent language, or preparing a batch of edits for review. The project turns that workflow into
+            a focused editing surface with import and export support.
+          </p>
+        </article>
+
+        <article class="about-panel">
+          <h2 class="about-panel__title">How it works</h2>
+          <p>
+            After connecting a Google account, the app loads playlists from the authenticated YouTube channel,
+            lets you edit playlist and video metadata locally, and pushes only the modified items through the
+            YouTube Data API.
+          </p>
+        </article>
+
+        <article class="about-panel">
+          <h2 class="about-panel__title">Design principles</h2>
+          <p>
+            The app stays small: vanilla HTML, CSS, and JavaScript; no build step; no backend; and JSON files as
+            a portable review format. The goal is a practical tool that can run anywhere static files can be
+            served.
+          </p>
+        </article>
+      </section>
+
+      <section class="about-cta" aria-label="Start using YouTube Genie">
+        <div>
+          <h2 class="about-cta__title">Ready to manage a playlist?</h2>
+          <p class="about-cta__text">Return to the app, connect YouTube, and start with a playlist export or edit session.</p>
+        </div>
+        <a class="btn btn--primary" href="index.html">Open the app</a>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

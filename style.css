@@ -233,12 +233,25 @@ body {
   justify-content: space-between;
   padding: var(--space-lg) 0;
   margin-bottom: var(--space-xl);
+  gap: var(--space-lg);
 }
 
 .app-logo {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+}
+
+.app-logo--link {
+  text-decoration: none;
+}
+
+.app-header__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .app-logo__icon {
@@ -267,6 +280,38 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.site-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(12px);
+}
+
+.site-nav__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color var(--duration-fast), background var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.site-nav__link:hover,
+.site-nav__link--active {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.08);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
 }
 
 /* --- Hero Section (pre-login) --- */
@@ -1617,6 +1662,98 @@ body.dragging-reorder {
   margin-top: var(--space-xs);
 }
 
+/* --- About Page --- */
+.about-page {
+  display: grid;
+  gap: var(--space-2xl);
+  padding-bottom: var(--space-3xl);
+}
+
+.about-hero {
+  max-width: 880px;
+  padding: var(--space-3xl) 0 var(--space-xl);
+}
+
+.about-kicker {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: var(--space-md);
+  color: var(--iris-cyan);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.about-hero__title {
+  max-width: 820px;
+  margin-bottom: var(--space-lg);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(2.25rem, 7vw, 5.25rem);
+  font-weight: 700;
+  line-height: 0.98;
+}
+
+.about-hero__lead {
+  max-width: 720px;
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  line-height: 1.7;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.about-panel {
+  min-height: 260px;
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025)),
+    rgba(10,10,20,0.42);
+  box-shadow: var(--shadow-card);
+}
+
+.about-panel__title {
+  margin-bottom: var(--space-md);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.about-panel p {
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.about-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: 1px solid rgba(24,255,255,0.18);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(120deg, rgba(24,255,255,0.12), rgba(124,77,255,0.12), rgba(255,45,123,0.1)),
+    rgba(255,255,255,0.04);
+}
+
+.about-cta__title {
+  margin-bottom: var(--space-xs);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.5rem;
+}
+
+.about-cta__text {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 /* --- Hidden Utility --- */
 .hidden {
   display: none !important;
@@ -1650,6 +1787,27 @@ body.dragging-reorder {
     flex-direction: column;
     gap: var(--space-md);
     text-align: center;
+  }
+
+  .app-header__right {
+    justify-content: center;
+  }
+
+  .about-hero {
+    padding-top: var(--space-xl);
+  }
+
+  .about-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .about-panel {
+    min-height: 0;
+  }
+
+  .about-cta {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .playlist-selector {
